@@ -113,13 +113,14 @@ function nearestNest(x, z) { let best = null, bd = 1e9; for (const c of G.camps 
 function toggleUnder() {
   under = !under;
   $('bUnder').classList.toggle('on', under); $('bCutUp').hidden = $('bCutDn').hidden = $('underSt').hidden = !under;
-  if (!under) { setCut(Infinity); return; }
+  if (!under) { setCut(null); return; }
   const c = selected ? campById(selected.camp) : null, nc = c && c.nest ? c : nearestNest(goal.tx, goal.tz);
   if (nc) { cutY = nc.nest.h - 1; goal.tx = nc.nest.x - 1; goal.tz = nc.nest.z; goal.dist = 16; goal.pitch = 0.95; cam.follow = false; }
   else cutY = Math.floor(world.height(goal.tx, goal.tz)) - 1;
-  setCut(cutY);
+  applyCut();
 }
-function moveCut(d) { cutY = clamp(cutY + d, 2, MAPY); if (cam.follow) cam.follow = false; setCut(cutY); }
+function applyCut() { setCut({ y: cutY, i: Math.round(cam.tx + HX), k: Math.round(cam.tz + HZ) }); } // окно среза — там, куда смотрит камера
+function moveCut(d) { cutY = clamp(cutY + d, 2, MAPY); if (cam.follow) cam.follow = false; applyCut(); }
 function underStatus() {
   if (!under) return;
   const c = nearestNest(cam.tx, cam.tz), n = c && c.nest;
@@ -140,13 +141,13 @@ function camUpdate(rdt) {
   if (keys.KeyA || keys.ArrowLeft) panCam(-kp, 0); if (keys.KeyD || keys.ArrowRight) panCam(kp, 0);
   if (keys.KeyQ) goal.yaw += 1.6 * rdt * fast; if (keys.KeyE) goal.yaw -= 1.6 * rdt * fast;
   if (keys.KeyR) goal.dist = Math.max(2.5, goal.dist * (1 - 1.2 * rdt)); if (keys.KeyF) goal.dist = Math.min(160, goal.dist * (1 + 1.2 * rdt));
-  if (cam.follow && selected) { goal.tx = selected.x; goal.tz = selected.z; if (under) { const cy = Math.floor(selected.y) + 2; if (cy !== cutY) { cutY = cy; setCut(cy); } } } // следим под землёй — срез идёт за роботом
+  if (cam.follow && selected) { goal.tx = selected.x; goal.tz = selected.z; if (under) cutY = Math.floor(selected.y) + 2; } // следим под землёй — срез идёт за роботом
   // плавно догоняем цель
   const k = 1 - Math.exp(-rdt * 9);
   cam.tx += (goal.tx - cam.tx) * k; cam.tz += (goal.tz - cam.tz) * k;
   cam.yaw += (goal.yaw - cam.yaw) * k; cam.pitch += (goal.pitch - cam.pitch) * k; cam.dist += (goal.dist - cam.dist) * k;
   let gy = Math.max(world.height(cam.tx, cam.tz), world.waterLevel(cam.tx, cam.tz)) + 1;
-  if (under) gy = Math.min(gy, cutY - 1);
+  if (under) { gy = Math.min(gy, cutY - 1); applyCut(); }
   cam.ty += (gy - cam.ty) * Math.min(1, rdt * 5);
 }
 // луч из камеры через пиксель → точка на земле

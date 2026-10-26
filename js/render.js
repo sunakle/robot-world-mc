@@ -98,12 +98,24 @@ const FACES = [
 ];
 const AO = [0.42, 0.6, 0.8, 1];
 // «непрозрачный» сосед закрывает грань; листва прозрачная
-// режим наблюдателя: всё, что выше среза CUT_Y, не рисуется — видно ходы и камеры под землёй
-let CUT_Y = Infinity;
-function setCut(y) { if (y === CUT_Y) return; CUT_Y = y; world.allDirty = true; world.waterDirty = true; }
+// режим наблюдателя: в круглом «окне» вокруг камеры всё выше среза не рисуется — видно ходы и камеры под землёй,
+// а остальной мир остаётся целым
+const CUT_R = 9;
+let CUT = null; // { y, i, k } — высота среза и центр окна в клетках карты
+const inCut = (i, k) => CUT !== null && (i - CUT.i) ** 2 + (k - CUT.k) ** 2 <= CUT_R * CUT_R;
+const cutTop = (i, k) => inCut(i, k) ? CUT.y : Infinity;
+const cutHides = (x, z, y) => CUT !== null && y > CUT.y + 0.5 && inCut(Math.floor(x + HX), Math.floor(z + HZ));
+function setCut(c) {
+  const old = CUT;
+  if ((!old && !c) || (old && c && old.y === c.y && old.i === c.i && old.k === c.k)) return;
+  CUT = c;
+  // перестраиваем только чанки под старым и новым окном
+  for (const w of [old, c]) if (w) for (let cz = (w.k - CUT_R - 1) >> 4; cz <= (w.k + CUT_R + 1) >> 4; cz++) for (let cx = (w.i - CUT_R - 1) >> 4; cx <= (w.i + CUT_R + 1) >> 4; cx++) world.dirtyChunks.add(cx + ',' + cz);
+  world.waterDirty = true;
+}
 function solidAt(i, y, k) {
   if (y < 0) return true;
-  if (i < 0 || k < 0 || i >= MAPX || k >= MAPZ || y >= MAPY || y >= CUT_Y) return false;
+  if (i < 0 || k < 0 || i >= MAPX || k >= MAPZ || y >= MAPY || y >= cutTop(i, k)) return false;
   const id = world.b[(y * MAPZ + k) * MAPX + i];
   return id !== 0 && id !== B_LEAVES;
 }
@@ -112,7 +124,7 @@ function buildChunk(cx, cz) {
   const e = 0.3 / 128; // отступ от края тайла, чтобы не было швов
   for (let k = cz * CH; k < Math.min(MAPZ, cz * CH + CH); k++) for (let i = cx * CH; i < Math.min(MAPX, cx * CH + CH); i++) {
     const top = world.hi[k * MAPX + i], bio = BIOMES[world.biome ? world.biome[k * MAPX + i] : 0];
-    for (let y = 0, ye = Math.min(top, CUT_Y); y < ye; y++) {
+    for (let y = 0, ye = Math.min(top, cutTop(i, k)); y < ye; y++) {
       const id = world.b[(y * MAPZ + k) * MAPX + i]; if (!id) continue;
       for (const f of FACES) {
         const tile = TILES[id][f.n[1] > 0 ? 0 : f.n[1] < 0 ? 2 : 1], tx = tile % ATL, ty = tile / ATL | 0;
@@ -146,7 +158,7 @@ function buildWater() {
   const dep = (i, k) => { if (i < 0 || k < 0 || i >= MAPX || k >= MAPZ) return 3; const q = k * MAPX + i; return Math.max(0, world.wl[q] - world.top[q]); };
   for (let k = 0; k < MAPZ; k++) for (let i = 0; i < MAPX; i++) {
     const q = k * MAPX + i, lvl = world.wl[q];
-    if (lvl <= world.top[q] || lvl > CUT_Y) continue;
+    if (lvl <= world.top[q] || lvl > cutTop(i, k)) continue;
     const base = p.length / 3;
     for (const [du, dv] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
       const ci = i + du, ck = k + dv;
@@ -289,10 +301,10 @@ function renderFrame(cam, dt, mul, selected, W, H) {
   if (world.waterDirty && now - lastWaterUp > 400) { buildWater(); lastWaterUp = now; }
   for (const m of chunks.values()) R.drawInst(m, CHUNK_INST, 1);
   for (const k in B) B[k].n = 0;
-  for (const r of robots) { animRobot(r, dt, mul); if (r.y <= CUT_Y + 0.5) drawRobot(r, now); } // выше среза — не видно
-  for (const o of world.objects) if (!o.dead && !o.carried && (CUT_Y === Infinity || world.height(o.x, o.z) <= CUT_Y + 0.5)) pushItem(o);
+  for (const r of robots) { animRobot(r, dt, mul); if (!cutHides(r.x, r.z, r.y)) drawRobot(r, now); } // в окне выше среза — не видно
+  for (const o of world.objects) if (!o.dead && !o.carried && !cutHides(o.x, o.z, world.height(o.x, o.z))) pushItem(o);
   for (const zb of world.zombies) drawZombie(zb, dt);
-  for (const t of world.trees) for (let n = 0; n < t.apples; n++) { const f = APPLE_SPOTS[n]; if (t.y + f[1] > CUT_Y) break; B[FRUIT_MESH[t.fruit] || 'fruit'].push(M4.rotY(T(t.x + f[0], t.y + f[1], t.z + f[2]), n * 1.7)); }
+  for (const t of world.trees) for (let n = 0; n < t.apples; n++) { const f = APPLE_SPOTS[n]; if (cutHides(t.x + f[0], t.z + f[2], t.y + f[1])) continue; B[FRUIT_MESH[t.fruit] || 'fruit'].push(M4.rotY(T(t.x + f[0], t.y + f[1], t.z + f[2]), n * 1.7)); }
   for (const k of OPAQUE) R.drawBatch(B[k]);
   R.blend(true);
   R.drawBatch(B.shadow, 0.28);

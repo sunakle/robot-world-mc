@@ -89,6 +89,20 @@ function nestStep(r, n, cl) {
   first('nest', `${r.name} начал рыть первое подземное гнездо`);
   if (!nestNext(n)) { const c = campById(r.camp); diplo(`Колония ${(tribeOf(r.tribe) || {}).name} достроила гнездо (${c ? c.biome : ''}): вход, камера, коридор и кладовая под землёй`); }
 }
+// яма рядом с гнездом (не часть его плана): колонна ниже соседей хотя бы на блок
+function findHole(r, n) {
+  if (r.hole && world.top[r.hole.q] < r.hole.t + 1) return r.hole;
+  r.hole = null;
+  if (!n.cellSet) n.cellSet = new Set(n.cells.map(c => c.k * MAPX + c.i));
+  for (let t = 0; t < 40; t++) {
+    const i = n.i + Math.round(rnd(-13, 13)), k = n.k + Math.round(rnd(-13, 13)), q = k * MAPX + i;
+    if (i < 1 || k < 1 || i >= MAPX - 1 || k >= MAPZ - 1 || n.cellSet.has(q) || Math.abs(i - n.i - 6) + Math.abs(k - n.k) <= 2) continue;
+    if (world.wl[q] > world.top[q] || world.hi[q] > world.top[q] + 1) continue; // вода и колонны под сводом/кроной — не трогаем
+    let sum = 0; for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [-1, -1], [1, -1], [-1, 1]]) sum += world.top[q + dz * MAPX + dx];
+    if (sum / 8 - world.top[q] >= 0.9) return (r.hole = { q, t: world.top[q], x: i - HX + 0.5, z: k - HZ + 0.5 });
+  }
+  return null;
+}
 // землю — наверх, в холмик муравейника у входа
 function moundSpot(n) { const a = n.mound * 2.4; return { x: n.x + 6 + Math.round(Math.sin(a) * 1.5), z: n.z + Math.round(Math.cos(a) * 1.5) }; }
 function dumpSoil(r, n) {
@@ -157,7 +171,7 @@ function colonyTick() {
     // повзрослевшие получают должность; строители появляются, если гнезда ещё нет
     for (const r of res) if ((!r.role || r.role === 'young') && isAdult(r)) assignRole(r);
     // гнездо готово — лишние строители уходят в фуражиры
-    if (c.nest && !nestNext(c.nest)) res.filter(r => r.role === 'builder').slice(1).forEach(r => setRole(r, 'forager', 'гнездо достроено'));
+    if (c.nest && !nestNext(c.nest)) res.filter(r => r.role === 'builder').slice(2).forEach(r => setRole(r, 'forager', 'гнездо достроено'));
     if (!c.nest && res.filter(r => r.role === 'builder').length === 0) {
       const w = res.find(r => r.role === 'forager' || r.role === 'nurse');
       if (w && res.length >= 3) setRole(w, 'builder', 'колонии нужно гнездо');
@@ -174,7 +188,11 @@ function roleJob(r) {
   // хочет есть, а на складе есть еда — к складу (последние запасы — матке и малышам)
   if (r.d[0] > 0.4 && foodCount(c.food) > (r.role === 'queen' || stageOf(r) === 'Малыш' ? 0 : 3)) { if (dh < 3) { eatFromStore(r, c); return null; } return job(home.x, home.z, 'идёт поесть на склад', null); }
   // ночь — все, кроме солдат, ночуют в гнезде
-  if (isNight() && c.nest && c.nest.dug > 8 && r.role !== 'soldier') return job(home.x, home.z, 'ночует в гнезде', 8, 2.5);
+  if (isNight() && c.nest && c.nest.dug > 8 && r.role !== 'soldier') { // у каждого своё место в камерах, а не куча в одной точке
+    const beds = c.nest.cells.filter(b => b.ry !== undefined && world.top[b.k * MAPX + b.i] <= b.f), b = beds.length ? beds[r.id % beds.length] : null;
+    const bx = b ? b.i - HX + 0.5 : home.x, bz = b ? b.k - HZ + 0.5 : home.z;
+    return job(bx, bz, 'ночует в гнезде', 8, 1.2);
+  }
   switch (r.role) {
     case 'queen': if (r.energy < 55 && !foodCount(c.food)) return null; // никто не кормит — сама идёт за едой
       return dh > 2 ? job(home.x, home.z, 'матка возвращается в гнездо', null) : job(home.x, home.z, 'матка в гнезде', 8, 3);
@@ -194,7 +212,13 @@ function roleJob(r) {
       if (!c.nest) { if (simTime - (c.nestTry || -99) < 30) return null; c.nestTry = simTime; c.nest = planNest(c); if (!c.nest) return null; } // место ищем не чаще раза в 30 с
       const n = c.nest;
       if (soilIn(r) >= 4 || (soilIn(r) && !nestNext(n))) { const p = moundSpot(n); const j = job(p.x, p.z, 'выносит землю в муравейник', null, 2); if (j.near) dumpSoil(r, n); return j; }
-      const cl = nestNext(n); if (!cl) return null;
+      const cl = nestNext(n);
+      if (!cl) { // гнездо готово — засыпаем ямы вокруг, чтобы у муравейника было ровно
+        const hole = findHole(r, n); if (!hole) return null;
+        const j = job(hole.x, hole.z, 'засыпает яму у гнезда', null, R + 0.6);
+        if (j.near && world.place(hole.x, hole.z, B_DIRT)) { r.st.built++; G.built++; r.hole = null; }
+        return j;
+      }
       return job(cl.i - HX + 0.5, cl.k - HZ + 0.5, 'роет гнездо', 4, R + 1.2);
     }
     case 'forager': {

@@ -646,12 +646,13 @@ function sense(r) {
   // что вообще можно сделать сейчас (как в Creatures: действие направлено на объект внимания)
   const av = r.avail || (r.avail = new Uint8Array(NA)); av.fill(1);
   const nearTrunk = tree && (tree.x - r.x) ** 2 + (tree.z - r.z) ** 2 < (reach(r) + 0.8) ** 2;
-  av[4] = I[38] > 0 || nearTrunk ? 1 : 0;
+  const cN = campById(r.camp), farNest = !cN || !cN.nest || Math.hypot(cN.nest.x - r.x, cN.nest.z - r.z) > 16;
+  av[4] = nearTrunk || (r.role === 'builder' && I[38] > 0 && farNest) ? 1 : 0; // копают только строители: у гнезда — по плану, вдали — камень и руду; рубить дерево может любой
   // «взаимодействие» — только когда есть с чем: еда, вода перед носом, дерево, буква, трава, сосед, блок (иначе робот тупо стоит и жмёт)
   const Rr = reach(r);
   av[3] = (r.energy < 97 && nearestIn(r, Rr, isFood)) || (r.water < 95 && nearWater(r)) || (r.energy < 80 && (r.inv.cooked || r.inv.meat || Object.keys(FOODS).some(k => r.inv[k]))) || nearTrunk ||
     nearestIn(r, Rr + 0.8, o => o.t === 'letter' && !o.carried) || nearestIn(r, Rr, o => o.t === 'grass' || o.t === 'block') || nearestRobot(r, Rr + 0.4) ? 1 : 0;
-  av[5] = r.carry || nearestIn(r, reach(r), o => CARRY.has(o.t) || o.t === 'meat') || (I[47] && placeSpot(r)) ? 1 : 0;
+  av[5] = r.carry || nearestIn(r, reach(r), o => CARRY.has(o.t) || o.t === 'meat') || (I[47] && r.role === 'builder' && placeSpot(r)) ? 1 : 0; // ставить блоки — тоже дело строителей
   av[7] = 0; // спариваться некому: потомство даёт только матка (яйца)
   if (r.role === 'builder') { const c = campById(r.camp), n = c && c.nest, cl = n && nestNext(n); if (cl && Math.hypot(cl.i - HX + 0.5 - r.x, cl.k - HZ + 0.5 - r.z) < reach(r) + 1.4) av[4] = 1; }
   av[9] = nearestZombie(r, reach(r) + 0.6) || nearestRobot(r, reach(r)) ? 1 : 0;
