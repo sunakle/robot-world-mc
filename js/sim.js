@@ -155,7 +155,7 @@ function lifeEvent(r, text) { r.life.push({ t: simTime, text }); if (r.life.leng
 // первые предки уже взрослые и немного умеют ходить
 function makeAncestor(x, z) {
   const g = randomGenes(), r = makeRobot(g, randomBrain(g.brain), x, z, 0);
-  r.age = r.lifespan * rnd(0.22, 0.27); r.skill.walk = 0.35;
+  r.age = r.lifespan * rnd(0.22, 0.55); // разный возраст — предки не вымирают разом r.skill.walk = 0.35;
   return r;
 }
 function spawnRandom() { const p = world.land(); robots.push(makeAncestor(p[0], p[1])); }
@@ -194,6 +194,10 @@ function initSim() {
   G.tribes = {}; G.rel = {}; G.diplo = []; G.tribeSeq = 0; G.camps = []; G.campSeq = 0;
   const t1 = newTribe(robots), c1 = newCamp(t1, bc.x, bc.z, robots[0].name);
   G.tribes[t1].capital = c1.id; for (const r of robots) { r.camp = c1.id; r.biomes = { [biomeAt(r.x, r.z)]: true }; }
+  // колония сразу распределяет должности: матка, разведчики (по гену), остальные — по долям каст
+  c1.food = { apple: 14 };
+  setRole(robots[1], 'queen', true); robots[1].x = bc.x; robots[1].z = bc.z;
+  for (const r of robots) if (!r.role) assignRole(r);
   pushEvent(`Карта Minecraft: трава, деревья с яблоками, вода. 26 роботов начинают жизнь — первое племя ${G.tribes[t1].name}.`);
 }
 function pushEvent(text) { events.unshift({ t: simTime, text }); if (events.length > 100) events.pop(); }
@@ -214,6 +218,7 @@ function step() {
   for (const r of robots) updateRobot(r);
   zombieTick(DT);
   tribeTick();
+  colonyTick();
   let removed = false;
   for (const r of robots) if (r.dead) {
     removed = true; G.deaths++; G.causes[r.cause] = (G.causes[r.cause] || 0) + 1;
@@ -279,7 +284,7 @@ function body(r) {
   // скука копится, если ничего нового
   d[9] += 0.006 * (0.3 + g.curiosity) * DT + (simTime - (r.lastNew || 0) > 40 ? 0.008 * g.curiosity * DT : 0); // засиделся на одном месте — тянет исследовать
   // влечение — у взрослых и сытых
-  d[11] += (isAdult(r) && r.energy > 45 && r.mateCool <= 0 ? 0.012 * (0.4 + g.fertility) : -0.004) * DT;
+  d[11] += (r.role === 'queen' && isAdult(r) && r.energy > 45 && r.mateCool <= 0 ? 0.012 * (0.4 + g.fertility) : -0.004) * DT;
   for (let i = 0; i < ND; i++) d[i] = clamp(d[i], 0, 1);
   // гормоны
   c.adrenaline += (Math.max(d[8], d[10], d[2]) - c.adrenaline) * DT * 0.5;
@@ -318,7 +323,7 @@ function shelterWalls(r) {
 
 function updateRobot(r) {
   const g = r.genes;
-  r.age += DT; r.actT -= DT; r.mateCool -= DT; r.mateWish -= DT; r.heard.t -= DT; r.fallT -= DT;
+  r.age += r.role === 'queen' ? DT / QUEEN_LIFE : DT; r.actT -= DT; r.mateCool -= DT; r.mateWish -= DT; r.heard.t -= DT; r.fallT -= DT; // матка стареет втрое медленнее
   if (r.actT <= 0 && r.fallT <= 0) decide(r);
   const a = r.action;
   r.moving = false;
@@ -464,12 +469,25 @@ function checkHome(r, walls, roof) {
   }
 }
 // ---------- исследование: любопытные уходят в дальние леса, других зовут с собой ----------
+function nestUnder(r) {
+  const q = world.col(r.x, r.z); if (q < 0 || world.hi[q] - world.top[q] < 2 || world.get(q % MAPX, world.hi[q] - 1, q / MAPX | 0) !== B_ROOF) return null;
+  let best = null, bd = 14;
+  for (const c of G.camps || []) if (c.nest) { const d = Math.hypot(c.nest.x - r.x, c.nest.z - r.z); if (d < bd) { bd = d; best = c.nest; } }
+  return best;
+}
+function nestExit(r, n) {
+  if (Math.abs(r.z - n.z) > 0.45 && Math.abs(r.x - n.x) > 2.5) return { x: r.x, z: n.z }; // сначала на ось хода
+  if (Math.abs(r.z - n.z) > 0.45) return { x: Math.min(r.x + 1, n.x + 2), z: n.z };
+  return { x: n.x + 5.5, z: n.z };
+}
 function steerTo(L, r, x, z, kb) {
+  const n = nestUnder(r); if (n && Math.hypot(x - n.x, z - n.z) > 6) ({ x, z } = nestExit(r, n)); // из гнезда — только через ход
   const a = normA(Math.atan2(x - r.x, z - r.z) - r.yaw);
-  L[1] += kb * Math.max(0, Math.sin(a)) * 1.6; L[2] += kb * Math.max(0, -Math.sin(a)) * 1.6; L[0] += kb * (Math.cos(a) * 0.9 + 0.2);
+  L[1] += kb * Math.max(0, Math.sin(a)) * 1.6; L[2] += kb * Math.max(0, -Math.sin(a)) * 1.6; L[0] += kb * (Math.cos(a) * 0.9 + (Math.cos(a) > 0.4 ? 0.2 : -0.4)); // цель сбоку — сначала развернуться, не кружить
 }
 function exploreGoal(r) {
   const g = r.genes, I = r.inp;
+  if (r.role === 'queen') return null; // матка не уходит
   if (r.goal && !isExplorer(r) && Math.max(I[0], I[1]) > 0.62) { r.goal = null; lifeEvent(r, 'Вернулся с полпути: голодно'); } // спутник сдаётся, странник — нет
   if (Math.max(I[0], I[1]) > (isExplorer(r) || (r.goal && r.goal.follow) ? 0.62 : 0.45) || ['Малыш', 'Ребёнок'].includes(stageOf(r))) return null;
   if (r.goal && simTime < r.goal.until) {
@@ -508,7 +526,7 @@ function exploreGoal(r) {
   // за странником идут несколько соплеменников — так возникают новые стоянки
   let nf = 0;
   if (ex) near(robGrid, r.x, r.z, 12, o => {
-    if (nf >= 6 || o === r || o.tribe !== r.tribe || o.goal || isExplorer(o) || Math.max(o.d[0], o.d[1]) > 0.45 || ['Малыш', 'Ребёнок'].includes(stageOf(o))) return;
+    if (nf >= 6 || o === r || o.tribe !== r.tribe || o.goal || isExplorer(o) || o.role === 'queen' || Math.max(o.d[0], o.d[1]) > 0.45 || ['Малыш', 'Ребёнок'].includes(stageOf(o))) return;
     if (simTime >= (o.settled || 0) && Math.random() < 0.35 + o.genes.social * 0.35 + o.genes.curiosity * 0.2 && ++nf) o.goal = { x: best.x + rnd(-3, 3), z: best.z + rnd(-3, 3), until: simTime + 940, follow: r.name };
   });
   return r.goal;
@@ -614,7 +632,7 @@ function sense(r) {
   if (I[49]) { best.land = null; for (let k = 0; k < 12 && !best.land; k++) for (let s2 = 1.5; s2 <= 12; s2 += 1.5) { const a2 = k / 12 * 6.283, lx = r.x + Math.sin(a2) * s2, lz = r.z + Math.cos(a2) * s2; if (!world.isWater(lx, lz) && world.height(lx, lz) - r.y < 1.6) { best.land = { x: lx, z: lz }; break; } } }
   I[44] = stationNear(r, B_TABLE) ? 1 : 0; I[45] = stationNear(r, B_FURNACE) ? 1 : 0;
   I[46] = (r.inv.cooked || r.inv.meat || Object.keys(FOODS).some(k => r.inv[k])) ? 1 : 0; I[47] = PLACEABLE.some(p => r.inv[p[0]]) ? 1 : 0; I[48] = r.tools.sword ? 1 : 0;
-  // сетчатка мухи: 24 направления × 8 признаков
+  // глаза муравья: 24 направления × 8 признаков
   const V = r.vision || (r.vision = new Float32Array(VIS_RAYS * VIS_FEAT));
   V.fill(0);
   for (let k = 0; k < VIS_RAYS; k++) {
@@ -629,13 +647,18 @@ function sense(r) {
   const av = r.avail || (r.avail = new Uint8Array(NA)); av.fill(1);
   const nearTrunk = tree && (tree.x - r.x) ** 2 + (tree.z - r.z) ** 2 < (reach(r) + 0.8) ** 2;
   av[4] = I[38] > 0 || nearTrunk ? 1 : 0;
+  // «взаимодействие» — только когда есть с чем: еда, вода перед носом, дерево, буква, трава, сосед, блок (иначе робот тупо стоит и жмёт)
+  const Rr = reach(r);
+  av[3] = (r.energy < 97 && nearestIn(r, Rr, isFood)) || (r.water < 95 && nearWater(r)) || (r.energy < 80 && (r.inv.cooked || r.inv.meat || Object.keys(FOODS).some(k => r.inv[k]))) || nearTrunk ||
+    nearestIn(r, Rr + 0.8, o => o.t === 'letter' && !o.carried) || nearestIn(r, Rr, o => o.t === 'grass' || o.t === 'block') || nearestRobot(r, Rr + 0.4) ? 1 : 0;
   av[5] = r.carry || nearestIn(r, reach(r), o => CARRY.has(o.t) || o.t === 'meat') || (I[47] && placeSpot(r)) ? 1 : 0;
-  av[7] = canMate(r) && nearestRobot(r, 2.2 * g.size) ? 1 : 0;
+  av[7] = 0; // спариваться некому: потомство даёт только матка (яйца)
+  if (r.role === 'builder') { const c = campById(r.camp), n = c && c.nest, cl = n && nestNext(n); if (cl && Math.hypot(cl.i - HX + 0.5 - r.x, cl.k - HZ + 0.5 - r.z) < reach(r) + 1.4) av[4] = 1; }
   av[9] = nearestZombie(r, reach(r) + 0.6) || nearestRobot(r, reach(r)) ? 1 : 0;
   if (r.inv.seed && farmSpot(r)) av[5] = 1;
   av[10] = RECIPES.some(rc => canCraftQuick(r, rc, I[44], I[45])) ? 1 : 0;
   av[11] = jumpTarget(r) ? 1 : 0;
-  // мозг мухи «тикает» ~2 раза в секунду (как реальные нейронные ритмы), решения используют последний результат
+  // мозг муравья «тикает» ~2 раза в секунду (как реальные нейронные ритмы), решения используют последний результат
   if (!(simTime - (r.flyT || -9) < 0.5)) { r.flyT = simTime; const mo = flyThink(r, V, I, NA); for (let a = 0; a < NA; a++) r.mbOut[a] = mo[a]; }
   best.water = wbest; best.tree = tree; best.R = R;
   r.near = best;
@@ -704,6 +727,16 @@ function instinct(r) {
     exploring = true; best = null; steerTo(L, r, gl.x, gl.z, k * 1.4); L[0] += k * 0.8; if (r.d[3] < 0.7) L[8] -= k * 2.5; // в пути не рассиживаться
     r.intent = { label: gl.follow ? 'идёт за ' + gl.follow + ' в новые места' : 'исследует новые места', x: gl.x, z: gl.z };
   }
+  // работа по должности, как у муравьёв: перебивают её только сильный голод, жажда и страх
+  if (!exploring && (!best || !best[4] || bu < 0.85) && I[8] < 0.5) { // долг перед колонией сильнее мелких нужд
+    const jb = roleJob(r);
+    if (jb) {
+      best = null; exploring = true;
+      if (jb.near && (jb.act == null || r.avail[jb.act])) { if (jb.act != null) L[jb.act] += k * 3; }
+      else { const wp = pathTo(r, jb.x, jb.z); steerTo(L, r, wp.x, wp.z, k * 1.5); L[0] += k * 0.5; if (r.d[3] < 0.7) L[8] -= k * 1.5; } // по тропе, а не напролом
+      r.intent = { label: jb.label, x: jb.x, z: jb.z };
+    }
+  }
   if (best) {
     const mem = best[1] < 0, s = mem ? ms : I[best[1]], c = mem ? mc : I[best[1] + 1], p = mem ? 0 : I[best[1] + 2];
     const kb = best[4] ? kk : k;
@@ -721,13 +754,18 @@ function instinct(r) {
   }
   if (I[33] > 0.85 && I[32] > 0.6) { L[I[31] > 0 ? 2 : 1] += k; L[0] -= k * 0.5; }
   // врождённое бегство от зомби (драться — надо научиться)
-  if (I[43] > 0.2 && I[8] > 0.2) { const f = k * I[8] * 2.5; L[I[41] > 0 ? 2 : 1] += f; L[0] += f * (I[42] < 0 ? 1 : -0.5); }
+  if (I[43] > 0.2 && I[8] > 0.2 && r.role !== 'soldier') { const f = k * I[8] * 2.5; L[I[41] > 0 ? 2 : 1] += f; L[0] += f * (I[42] < 0 ? 1 : -0.5); }
   // тесно — отойти от соседей (так племя расселяется по карте)
-  if (I[7] > 0.35 && Math.max(hunger, thirst) < 0.5) { const f = k * I[7] * 2; L[0] += f; if (I[24] > 0.3) L[I[22] > 0 ? 2 : 1] += f; }
+  if (I[7] > 0.35 && Math.max(hunger, thirst) < 0.5 && !exploring) { const f = k * I[7] * 2; L[0] += f; if (I[24] > 0.3) L[I[22] > 0 ? 2 : 1] += f; }
   // сон и отдых
   L[8] += k * (Math.max(0, I[3] - 0.5) * 3 + Math.max(0, I[4] - 0.5) * 3 + Math.max(0, 0.4 - r.health / 100) * 4);
   const need = Math.max(hunger, thirst);
   if (need > 0.5) { L[6] -= kk * need * 1.5; L[7] -= kk * need; L[8] -= kk * need; }
+  // в гнезде, а дело снаружи — к выходу (ход идёт по оси гнезда)
+  const nn = nestUnder(r);
+  if (nn && !(r.intent && Math.hypot(r.intent.x - nn.x, r.intent.z - nn.z) < 6) && !(isNight() && r.role !== 'soldier')) {
+    const ex = nestExit(r, nn); steerTo(L, r, ex.x, ex.z, k * 2); r.intent = { label: 'выходит из гнезда', x: ex.x, z: ex.z };
+  }
   return L;
 }
 function forward(r) {
@@ -847,7 +885,7 @@ function eat(r, o) {
   if (o.t === 'meat' && Math.random() < 0.3 && r.chem.antigen <= 0) { r.chem.antigen = 0.6; r.st.ill++; lifeEvent(r, 'Отравился сырым мясом'); }
   first('eat', `${r.name} первым поел плоды`);
 }
-function drink(r) { r.water = Math.min(100, r.water + 35); r.st.drink++; }
+function drink(r) { r.water = Math.min(100, r.water + 50); r.st.drink++; }
 function shake(r, t) {
   r.st.shakes++; r.d[3] = Math.min(1, r.d[3] + 0.02);
   if (t.apples > 0 && Math.random() < 0.35 + strOf(r) * 0.5) {
@@ -883,6 +921,7 @@ function greet(r, m) {
 }
 // копать тяжело: много энергии и усталости; успех — навык, сила и инструмент. Добыча идёт в сумку
 function dig(r) {
+  if (r.role === 'builder') { const c = campById(r.camp), n = c && c.nest, cl = n && nestNext(n); if (cl && Math.hypot(cl.i - HX + 0.5 - r.x, cl.k - HZ + 0.5 - r.z) < reach(r) + 1.4) return nestStep(r, n, cl); }
   const [x, z] = front(r, 0.6 + 0.3 * r.genes.size);
   r.energy -= 3; r.d[3] = Math.min(1, r.d[3] + 0.1);
   // рубка: перед роботом ствол
@@ -972,7 +1011,7 @@ function makeChild(a, b) {
   }
   const brain = childBrain(SET.lamarck ? a.brain : a.innate, SET.lamarck ? b.brain : b.innate, genes.brain);
   const c = makeRobot(genes, brain, inX(a.x + rnd(-1, 1)), inZ(a.z + rnd(-1, 1)), Math.max(a.gen, b.gen) + 1, a === b ? [a.name] : [a.name, b.name]);
-  c.energy = 70; c.mem = { ...a.mem }; c.fly = childFly(a.fly, b.fly); c.tribe = a.tribe; c.camp = a.camp; c.biomes = { ...(a.biomes || {}) }; c.settled = a.settled || 0; c.home = a.home ? { ...a.home } : { x: a.x, z: a.z };
+  c.energy = 70; c.mem = { ...a.mem }; c.fly = childFly(a.fly, b.fly); c.tribe = a.tribe; c.camp = a.camp; c.role = 'young'; c.biomes = { ...(a.biomes || {}) }; c.settled = a.settled || 0; c.home = a.home ? { ...a.home } : { x: a.x, z: a.z };
   if (SET.lamarck) for (const k in a.rp) c.rp[k] = ((a.rp[k] || 0) + (b.rp[k] || 0)) / 2;
   if (SET.lamarck) {
     for (let k = 0; k < 26; k++) c.letters[k] = Math.max(a.letters[k], b.letters[k]) * 0.97;

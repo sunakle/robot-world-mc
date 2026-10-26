@@ -103,7 +103,30 @@ addEventListener('keydown', e => {
   keys[e.code] = true;
   if (e.code === 'Space') { e.preventDefault(); setSpeed(speed ? 0 : 1); }
   if (e.code === 'Home') { goal.tx = 0; goal.tz = 0; goal.dist = 150; goal.pitch = 1.1; cam.follow = false; }
+  if (e.code === 'KeyU') toggleUnder();
+  if (under && e.code === 'PageUp') { e.preventDefault(); moveCut(1); }
+  if (under && e.code === 'PageDown') { e.preventDefault(); moveCut(-1); }
 });
+// ---------- режим наблюдателя под землёй: срез мира по высоте ----------
+let under = false, cutY = 0;
+function nearestNest(x, z) { let best = null, bd = 1e9; for (const c of G.camps || []) if (c.nest) { const d = Math.hypot(c.nest.x - x, c.nest.z - z); if (d < bd) { bd = d; best = c; } } return best; }
+function toggleUnder() {
+  under = !under;
+  $('bUnder').classList.toggle('on', under); $('bCutUp').hidden = $('bCutDn').hidden = $('underSt').hidden = !under;
+  if (!under) { setCut(Infinity); return; }
+  const c = selected ? campById(selected.camp) : null, nc = c && c.nest ? c : nearestNest(goal.tx, goal.tz);
+  if (nc) { cutY = nc.nest.h - 1; goal.tx = nc.nest.x - 1; goal.tz = nc.nest.z; goal.dist = 16; goal.pitch = 0.95; cam.follow = false; }
+  else cutY = Math.floor(world.height(goal.tx, goal.tz)) - 1;
+  setCut(cutY);
+}
+function moveCut(d) { cutY = clamp(cutY + d, 2, MAPY); if (cam.follow) cam.follow = false; setCut(cutY); }
+function underStatus() {
+  if (!under) return;
+  const c = nearestNest(cam.tx, cam.tz), n = c && c.nest;
+  const inside = n ? robots.filter(r => nestUnder(r) === n).length : 0;
+  $('underSt').textContent = `срез: ${cutY}` + (n ? ` · гнездо ${(tribeOf(c.tribe) || {}).name || ''}: вырыто ${n.dug} блоков, внутри ${inside}` : ' · гнёзд рядом нет');
+}
+$('bUnder').onclick = toggleUnder; $('bCutUp').onclick = () => moveCut(1); $('bCutDn').onclick = () => moveCut(-1);
 addEventListener('keyup', e => { keys[e.code] = false; });
 addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 function panCam(right, fwd) {
@@ -117,12 +140,13 @@ function camUpdate(rdt) {
   if (keys.KeyA || keys.ArrowLeft) panCam(-kp, 0); if (keys.KeyD || keys.ArrowRight) panCam(kp, 0);
   if (keys.KeyQ) goal.yaw += 1.6 * rdt * fast; if (keys.KeyE) goal.yaw -= 1.6 * rdt * fast;
   if (keys.KeyR) goal.dist = Math.max(2.5, goal.dist * (1 - 1.2 * rdt)); if (keys.KeyF) goal.dist = Math.min(160, goal.dist * (1 + 1.2 * rdt));
-  if (cam.follow && selected) { goal.tx = selected.x; goal.tz = selected.z; }
+  if (cam.follow && selected) { goal.tx = selected.x; goal.tz = selected.z; if (under) { const cy = Math.floor(selected.y) + 2; if (cy !== cutY) { cutY = cy; setCut(cy); } } } // следим под землёй — срез идёт за роботом
   // плавно догоняем цель
   const k = 1 - Math.exp(-rdt * 9);
   cam.tx += (goal.tx - cam.tx) * k; cam.tz += (goal.tz - cam.tz) * k;
   cam.yaw += (goal.yaw - cam.yaw) * k; cam.pitch += (goal.pitch - cam.pitch) * k; cam.dist += (goal.dist - cam.dist) * k;
-  const gy = Math.max(world.height(cam.tx, cam.tz), world.waterLevel(cam.tx, cam.tz)) + 1;
+  let gy = Math.max(world.height(cam.tx, cam.tz), world.waterLevel(cam.tx, cam.tz)) + 1;
+  if (under) gy = Math.min(gy, cutY - 1);
   cam.ty += (gy - cam.ty) * Math.min(1, rdt * 5);
 }
 // луч из камеры через пиксель → точка на земле
@@ -246,20 +270,20 @@ function geneBar(r, k) {
     temper: C.pain, nerves: C.mind, immunity: C.sick, fertility: C.happy, lifespan: C.old };
   return bar(GENE_NAMES[k], f, val, GC[k] || C.neutral);
 }
-// ---------- проекция мозга мухи: контур как на атласе FlyWire, нейроны-волокна мерцают по активности ----------
+// ---------- проекция мозга муравья: контур мозга насекомого, нейроны-волокна мерцают по активности ----------
 // контур: левая половина (x, y в долях), правая — зеркально
 const FLY_OUTLINE_L = [[0.5, 0.12], [0.46, 0.11], [0.4, 0.08], [0.34, 0.12], [0.29, 0.17], [0.27, 0.24], [0.25, 0.26], [0.21, 0.23], [0.16, 0.28], [0.12, 0.38],
   [0.105, 0.52], [0.115, 0.66], [0.15, 0.77], [0.2, 0.84], [0.25, 0.84], [0.3, 0.77], [0.34, 0.68], [0.36, 0.64], [0.39, 0.67], [0.43, 0.74], [0.47, 0.77], [0.5, 0.77]];
 const FLY_OUTLINE = [...FLY_OUTLINE_L, ...FLY_OUTLINE_L.slice().reverse().map(([x, y]) => [1 - x, y])];
 // где лежит каждый отдел и куда тянутся его волокна
 const FLY_GEO = {
-  retina: { c: [0.135, 0.5], r: [0.018, 0.23], lat: true, n: 110, col: [111, 231, 255], to: (p, j) => [p[0] + 0.035, p[1] + j() * 0.01] },
-  lamina: { c: [0.175, 0.5], r: [0.022, 0.21], lat: true, n: 110, col: [79, 216, 240], to: (p, j) => [p[0] + 0.04, p[1] + (0.5 - p[1]) * 0.1] },
-  medulla: { c: [0.225, 0.5], r: [0.035, 0.18], lat: true, n: 180, col: [63, 196, 234], to: (p, j) => [p[0] + 0.05, p[1] + (0.48 - p[1]) * 0.3] },
-  lobula: { c: [0.28, 0.47], r: [0.025, 0.12], lat: true, n: 130, col: [53, 176, 230], to: (p, j) => [0.36 + j() * 0.03, 0.31 + j() * 0.05] },
+  retina: { c: [0.16, 0.5], r: [0.014, 0.14], lat: true, n: 60, col: [111, 231, 255], to: (p, j) => [p[0] + 0.035, p[1] + j() * 0.01] },
+  lamina: { c: [0.195, 0.5], r: [0.016, 0.13], lat: true, n: 70, col: [79, 216, 240], to: (p, j) => [p[0] + 0.04, p[1] + (0.5 - p[1]) * 0.1] },
+  medulla: { c: [0.24, 0.5], r: [0.028, 0.12], lat: true, n: 120, col: [63, 196, 234], to: (p, j) => [p[0] + 0.05, p[1] + (0.48 - p[1]) * 0.3] },
+  lobula: { c: [0.29, 0.48], r: [0.02, 0.08], lat: true, n: 80, col: [53, 176, 230], to: (p, j) => [0.36 + j() * 0.03, 0.31 + j() * 0.05] },
   lh: { c: [0.33, 0.3], r: [0.025, 0.045], lat: true, n: 60, col: [50, 224, 208], to: (p, j) => [0.37 + j() * 0.02, 0.22 + j() * 0.02] },
-  mb: { c: [0.37, 0.21], r: [0.035, 0.045], lat: true, n: 140, col: [43, 217, 232], to: (p, j) => [0.44 + j() * 0.015, 0.47 + j() * 0.03] },
-  al: { c: [0.455, 0.6], r: [0.025, 0.035], lat: true, n: 80, col: [74, 168, 240], to: (p, j) => [0.37 + j() * 0.02, 0.22 + j() * 0.02] },
+  mb: { c: [0.39, 0.22], r: [0.075, 0.085], lat: true, n: 320, col: [43, 217, 232], to: (p, j) => [0.44 + j() * 0.015, 0.47 + j() * 0.03] },
+  al: { c: [0.45, 0.6], r: [0.045, 0.06], lat: true, n: 160, col: [74, 168, 240], to: (p, j) => [0.37 + j() * 0.02, 0.22 + j() * 0.02] },
   proto: { c: [0.5, 0.33], r: [0.13, 0.12], n: 220, col: [47, 138, 232], to: (p, j) => [1 - p[0] + j() * 0.03, p[1] + j() * 0.05] },
   cx: { c: [0.5, 0.42], r: [0.05, 0.025], n: 80, col: [92, 156, 255], to: (p, j) => [1 - p[0], p[1] + j() * 0.01] },
   motor: { c: [0.5, 0.5], r: [0.035, 0.05], n: 80, col: [47, 111, 224], to: (p, j) => [0.5 + j() * 0.012, 0.88] },
@@ -354,7 +378,7 @@ function robotPanel() {
       <h1>${esc(r.name)} <span class="muted" style="font-size:12px">#${r.id}</span></h1>
       <div class="btns"><button data-r="follow">${cam.follow ? 'Не следить' : 'Следить'}</button><button data-r="close">Закрыть</button></div>
     </div>
-    <div style="margin:2px 0 4px"><span class="sw" style="background:${tribeCss(r.tribe)}"></span> племя <b style="color:${tribeCss(r.tribe)}">${esc((tribeOf(r.tribe) || {}).name || '?')}</b>${r.goal ? ' · в походе' : ''}${isExplorer(r) ? ' · <span style="color:#ffd54f">странник</span>' : ''}</div>
+    <div style="margin:2px 0 4px"><span class="sw" style="background:${tribeCss(r.tribe)}"></span> племя <b style="color:${tribeCss(r.tribe)}">${esc((tribeOf(r.tribe) || {}).name || '?')}</b>${r.goal ? ' · в походе' : ''}${r.role ? ` · <span style="color:${roleOf(r).col}">${roleOf(r).ru}</span>` : ''}</div>
     <div class="muted" style="margin:0 0 4px">место: ${BIOMES[r.bio || 0].ru}${campById(r.camp) ? ' · стоянка у ' + campById(r.camp).biome.toLowerCase() : ''} · знает биомов: ${Object.keys(r.biomes || {}).length} из ${BIOMES.length}${Object.keys(BUFFS).filter(k => buffOn(r, k)).map(k => ` · <span style="color:#81c784">${BUFFS[k]} ${Math.ceil(r.buffs[k] - simTime)} с</span>`).join('')}</div>
     <div class="muted">${stageOf(r)} · поколение ${r.gen} · ${r.parents ? 'родители: ' + esc(r.parents.join(' и ')) : 'первопредок'} · ${sw}</div>
     <h2>Рука</h2>
@@ -504,6 +528,12 @@ function tribesPanel() {
     return `<td style="color:${st[2]}">${st[1]}<br><span class="muted">${v >= 0 ? '+' : ''}${v.toFixed(2)}</span></td>`;
   }).join('') + '</tr>').join('') + '</table>';
   const camps = G.camps || [];
+  const RK = ['queen', 'soldier', 'builder', 'forager', 'nurse', 'scout', 'young'];
+  $('colonyTable').innerHTML = '<tr><th>колония</th>' + RK.map(k => `<th style="color:${ROLES[k].col}" title="${ROLES[k].desc}">${ROLES[k].ru}</th>`).join('') + '<th>склад</th><th>гнездо</th></tr>' + camps.filter(c => c.pop).map(c => {
+    const cnt = {}; for (const r of robots) if (r.camp === c.id) cnt[r.role || 'young'] = (cnt[r.role || 'young'] || 0) + 1;
+    const q = queenOf(c), n = c.nest, left = n ? n.cells.length - n.next : 0;
+    return `<tr><td style="color:${c.tribe ? tribeCss(c.tribe) : ''}">${esc((tribeOf(c.tribe) || {}).name || 'ничья')}<br><span class="muted">${esc(c.biome)}${q ? ', матка ' + esc(q.name) : ', без матки'}</span></td>` + RK.map(k => `<td>${cnt[k] || ''}</td>`).join('') + `<td>${foodCount(c.food)}</td><td>${n ? (nestNext(n) ? `роют: ${n.dug} бл.` : `готово (${n.dug} бл.)`) : '<span class="muted">нет</span>'}</td></tr>`;
+  }).join('');
   $('campTable').innerHTML = camps.length ? '<tr><th>стоянка</th><th>племя</th><th>жителей</th><th>основал</th><th>состояние</th></tr>' + camps.map(c => {
     const t = tribeOf(c.tribe), sg = Object.keys(c.siege || {}).filter(k => c.siege[k] > 0);
     const st = sg.length ? `<span style="color:#e57373">осада: ${sg.map(k => esc((tribeOf(+k) || {}).name || '?')).join(', ')}</span>` : c.pop ? (t && t.capital === c.id ? 'столица' : 'живая') : '<span class="muted">пустует</span>';
@@ -548,7 +578,7 @@ function frame(now) {
   if (now - fpsT > 1000) {
     const simRate = (simTime - simMark) / ((now - fpsT) / 1000);
     perfTxt = `${fpsN} FPS · время ×${simRate.toFixed(0)}`; fpsN = 0; fpsT = now; simMark = simTime;
-    $('perf').textContent = perfTxt;
+    $('perf').textContent = perfTxt; underStatus();
   }
   if (now - lastPanel > 350) { lastPanel = now; updatePanels(); $('saveSt').textContent = 'Автосохранение: ' + saveStatus; }
   if (now - lastAutosave > 60000) { lastAutosave = now; autosave(); }

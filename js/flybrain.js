@@ -1,27 +1,28 @@
 'use strict';
-// ================= Мозг размером с мозг плодовой мушки: 139 255 нейронов (как в коннектоме FlyWire) =================
+// ================= Мозг размером с мозг рабочего муравья: ~250 000 нейронов =================
+// Пропорции отделов — как у муравьёв (порядок величин): маленькие глаза, большие антеннальные доли (запахи, феромоны)
+// и огромные грибовидные тела — центр памяти и обучения, у муравьёв они намного больше, чем у мухи.
 // Связи не хранятся: их задаёт «геном связей» (seed) через хеш — у каждого робота свой коннектом, памяти почти не нужно.
-// Активность разреженная (как у настоящей мухи), считаем только то, что реально «зажглось».
-// Учатся связи клеток Кеньона (грибовидное тело) с выходом — дофамин (награда) их усиливает, как у мухи.
+// Активность разреженная, считаем только то, что реально «зажглось». Дофамин (награда) усиливает выход клеток Кеньона.
 const FLY = [
-  { k: 'retina', ru: 'Фоторецепторы (глаза)', n: 6000, act: 0.03 },
-  { k: 'lamina', ru: 'Ламина', n: 12000, act: 0.02 },
-  { k: 'medulla', ru: 'Медулла', n: 40000, act: 0.015 },
-  { k: 'lobula', ru: 'Лобула', n: 19000, act: 0.02 },
-  { k: 'al', ru: 'Антеннальные доли (чувства тела)', n: 3200, act: 0.04 },
-  { k: 'lh', ru: 'Латеральный рог (врождённое)', n: 1700, act: 0.03 },
-  { k: 'proto', ru: 'Протоцеребрум (связующие)', n: 50855, act: 0.01 },
-  { k: 'mb', ru: 'Грибовидные тела (память, обучение)', n: 2200, act: 0.05 },
-  { k: 'cx', ru: 'Центральный комплекс (навигация, выбор)', n: 3000, act: 0.03 },
-  { k: 'motor', ru: 'Нисходящие и моторные нейроны', n: 1300, act: 0.04 },
+  { k: 'retina', ru: 'Фоторецепторы (фасеточные глаза)', n: 2000, act: 0.04 },
+  { k: 'lamina', ru: 'Ламина', n: 5000, act: 0.03 },
+  { k: 'medulla', ru: 'Медулла', n: 18000, act: 0.015 },
+  { k: 'lobula', ru: 'Лобула', n: 7000, act: 0.02 },
+  { k: 'al', ru: 'Антеннальные доли (запахи, феромоны, тело)', n: 25000, act: 0.02 },
+  { k: 'lh', ru: 'Латеральный рог (врождённое)', n: 4000, act: 0.03 },
+  { k: 'proto', ru: 'Протоцеребрум (связующие)', n: 80000, act: 0.006 },
+  { k: 'mb', ru: 'Грибовидные тела (память, обучение)', n: 100000, act: 0.004 },
+  { k: 'cx', ru: 'Центральный комплекс (навигация, путь к гнезду)', n: 6000, act: 0.03 },
+  { k: 'motor', ru: 'Нисходящие и моторные нейроны', n: 3000, act: 0.03 },
 ];
-const FLY_TOTAL = FLY.reduce((s, r) => s + r.n, 0); // 139 255
+const FLY_TOTAL = FLY.reduce((s, r) => s + r.n, 0); // 250 000
 const FI = Object.fromEntries(FLY.map((r, i) => [r.k, i]));
 // проводящие пути: откуда → куда, сколько выходных синапсов у нейрона
 const FLY_PATHS = [['retina', 'lamina', 6], ['lamina', 'medulla', 8], ['medulla', 'lobula', 6], ['lobula', 'proto', 8],
   ['al', 'lh', 6], ['al', 'mb', 7], ['al', 'proto', 6], ['proto', 'mb', 4], ['proto', 'cx', 4], ['mb', 'cx', 3], ['lh', 'motor', 5], ['cx', 'motor', 5]];
 const VIS_RAYS = 24, VIS_FEAT = 8; // 24 направления × 8 признаков (свет, рельеф, вода, робот, яблоко, дерево, зомби, предмет)
-const MB_N = FLY[FI.mb].n;
+const MB_N = FLY[FI.mb].n, MB_W = 4096; // обучаемых «гнёзд» синапсов: клетки Кеньона делят их по хешу (иначе 100 000 × 16 весов на робота)
 
 const hash32 = (a, b, c) => { let h = (a ^ 0x9e3779b9) + Math.imul(b, 0x85ebca6b) + Math.imul(c, 0xc2b2ae35); h ^= h >>> 16; h = Math.imul(h, 0x7feb352d); h ^= h >>> 15; h = Math.imul(h, 0x846ca68b); h ^= h >>> 16; return h >>> 0; };
 // общие буферы для подсчёта (мозги считаются по очереди)
@@ -29,7 +30,7 @@ const FLY_ACC = FLY.map(r => new Uint8Array(r.n));
 const FLY_TOUCH = FLY.map(r => new Int32Array(Math.min(r.n, 60000))), FLY_TN = new Int32Array(FLY.length);
 const FLY_LAST = Object.fromEntries(FLY.map(r => [r.k, FLY_PATHS.filter(p => p[1] === r.k).slice(-1)[0]]));
 
-function newFly(seed) { return { seed: seed >>> 0, W: new Float32Array(MB_N * 16), active: FLY.map(() => []), out: new Float32Array(16), trace: [] }; }
+function newFly(seed) { return { seed: seed >>> 0, W: new Float32Array(MB_W * 16), active: FLY.map(() => []), out: new Float32Array(16), trace: [] }; }
 function childFly(a, b) {
   const f = newFly(Math.random() < 0.5 ? a.seed : b.seed);
   if (Math.random() < 0.1 * SET.mut) f.seed = hash32(f.seed, 7, Math.random() * 1e9 | 0); // мутация проводки
@@ -73,7 +74,7 @@ function flyThink(r, vision, body, na) {
   // антеннальные доли: внутренние ощущения (драйвы, сытость, ночь…)
   const al = act[FI.al], nA = FLY[FI.al].n;
   for (let i = 0; i < nA; i++) { const v = body[tu.af[i]]; if (v > 0.05 && v > tu.at[i]) al.push(i); }
-  if (al.length > nA * 0.08) al.length = nA * 0.08 | 0;
+  if (al.length > nA * 0.02) al.length = nA * 0.02 | 0; // ~500 клубочков-нейронов разом, как разреженный код запахов
   // распространение по путям
   for (const path of FLY_PATHS) {
     const [from, to, fan] = path, fi = FI[from], ti = FI[to], acc = FLY_ACC[ti], n = FLY[ti].n, tl = FLY_TOUCH[ti], cap = tl.length, src = act[fi];
@@ -95,8 +96,8 @@ function flyThink(r, vision, body, na) {
   // выход грибовидных тел (обучаемый)
   const out = F.out, mb = act[FI.mb];
   out.fill(0);
-  for (const kc of mb) for (let a = 0; a < na; a++) out[a] += F.W[kc * 16 + a];
-  for (let a = 0; a < na; a++) out[a] = Math.tanh(out[a] / 2);
+  for (const kc of mb) { const w = (kc % MB_W) * 16; for (let a = 0; a < na; a++) out[a] += F.W[w + a]; }
+  for (let a = 0; a < na; a++) out[a] = Math.tanh(out[a] / 4); // активных клеток Кеньона ~400 — нормируем сильнее, чем у мухи
   return out;
 }
 // дофамин: усиливает (или ослабляет) связи недавно активных клеток Кеньона с выбранным действием
@@ -104,7 +105,7 @@ function flyTrace(r, dz, na) { const F = r.fly; F.trace.unshift({ kc: F.active[F
 function flyLearn(r, lr, na) {
   const F = r.fly; let decay = 1;
   for (const e of F.trace) {
-    for (const kc of e.kc) for (let a = 0; a < na; a++) { const w = F.W[kc * 16 + a] + lr * decay * e.dz[a]; F.W[kc * 16 + a] = w > 3 ? 3 : w < -3 ? -3 : w; }
+    for (const kc of e.kc) { const o = (kc % MB_W) * 16; for (let a = 0; a < na; a++) { const w = F.W[o + a] + lr * decay * e.dz[a]; F.W[o + a] = w > 3 ? 3 : w < -3 ? -3 : w; } }
     decay *= LAMBDA;
   }
 }

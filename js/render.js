@@ -98,9 +98,12 @@ const FACES = [
 ];
 const AO = [0.42, 0.6, 0.8, 1];
 // «непрозрачный» сосед закрывает грань; листва прозрачная
+// режим наблюдателя: всё, что выше среза CUT_Y, не рисуется — видно ходы и камеры под землёй
+let CUT_Y = Infinity;
+function setCut(y) { if (y === CUT_Y) return; CUT_Y = y; world.allDirty = true; world.waterDirty = true; }
 function solidAt(i, y, k) {
   if (y < 0) return true;
-  if (i < 0 || k < 0 || i >= MAPX || k >= MAPZ || y >= MAPY) return false;
+  if (i < 0 || k < 0 || i >= MAPX || k >= MAPZ || y >= MAPY || y >= CUT_Y) return false;
   const id = world.b[(y * MAPZ + k) * MAPX + i];
   return id !== 0 && id !== B_LEAVES;
 }
@@ -109,11 +112,11 @@ function buildChunk(cx, cz) {
   const e = 0.3 / 128; // отступ от края тайла, чтобы не было швов
   for (let k = cz * CH; k < Math.min(MAPZ, cz * CH + CH); k++) for (let i = cx * CH; i < Math.min(MAPX, cx * CH + CH); i++) {
     const top = world.hi[k * MAPX + i], bio = BIOMES[world.biome ? world.biome[k * MAPX + i] : 0];
-    for (let y = 0; y < top; y++) {
+    for (let y = 0, ye = Math.min(top, CUT_Y); y < ye; y++) {
       const id = world.b[(y * MAPZ + k) * MAPX + i]; if (!id) continue;
       for (const f of FACES) {
         const tile = TILES[id][f.n[1] > 0 ? 0 : f.n[1] < 0 ? 2 : 1], tx = tile % ATL, ty = tile / ATL | 0;
-        const tint = id === B_LEAVES ? bio.leaf : id === B_GRASS && f.n[1] > 0 ? bio.tint : null; // у каждого биома свой цвет травы и листвы
+        const tint = id === B_LEAVES ? bio.leaf : (id === B_GRASS || id === B_ROOF) && f.n[1] > 0 ? bio.tint : null; // у каждого биома свой цвет травы и листвы
         const [n0, n1, n2] = f.n, ni = i + n0, ny = y + n1, nk = k + n2;
         if (solidAt(ni, ny, nk)) continue;
         const u = f.u, v = f.v, base = p.length / 3, ao = [];
@@ -143,7 +146,7 @@ function buildWater() {
   const dep = (i, k) => { if (i < 0 || k < 0 || i >= MAPX || k >= MAPZ) return 3; const q = k * MAPX + i; return Math.max(0, world.wl[q] - world.top[q]); };
   for (let k = 0; k < MAPZ; k++) for (let i = 0; i < MAPX; i++) {
     const q = k * MAPX + i, lvl = world.wl[q];
-    if (lvl <= world.top[q]) continue;
+    if (lvl <= world.top[q] || lvl > CUT_Y) continue;
     const base = p.length / 3;
     for (const [du, dv] of [[0, 0], [1, 0], [1, 1], [0, 1]]) {
       const ci = i + du, ck = k + dv;
@@ -286,10 +289,10 @@ function renderFrame(cam, dt, mul, selected, W, H) {
   if (world.waterDirty && now - lastWaterUp > 400) { buildWater(); lastWaterUp = now; }
   for (const m of chunks.values()) R.drawInst(m, CHUNK_INST, 1);
   for (const k in B) B[k].n = 0;
-  for (const r of robots) { animRobot(r, dt, mul); drawRobot(r, now); }
-  for (const o of world.objects) if (!o.dead && !o.carried) pushItem(o);
+  for (const r of robots) { animRobot(r, dt, mul); if (r.y <= CUT_Y + 0.5) drawRobot(r, now); } // выше среза — не видно
+  for (const o of world.objects) if (!o.dead && !o.carried && (CUT_Y === Infinity || world.height(o.x, o.z) <= CUT_Y + 0.5)) pushItem(o);
   for (const zb of world.zombies) drawZombie(zb, dt);
-  for (const t of world.trees) for (let n = 0; n < t.apples; n++) { const f = APPLE_SPOTS[n]; B[FRUIT_MESH[t.fruit] || 'fruit'].push(M4.rotY(T(t.x + f[0], t.y + f[1], t.z + f[2]), n * 1.7)); }
+  for (const t of world.trees) for (let n = 0; n < t.apples; n++) { const f = APPLE_SPOTS[n]; if (t.y + f[1] > CUT_Y) break; B[FRUIT_MESH[t.fruit] || 'fruit'].push(M4.rotY(T(t.x + f[0], t.y + f[1], t.z + f[2]), n * 1.7)); }
   for (const k of OPAQUE) R.drawBatch(B[k]);
   R.blend(true);
   R.drawBatch(B.shadow, 0.28);

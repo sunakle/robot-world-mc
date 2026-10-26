@@ -1,9 +1,9 @@
 'use strict';
 // ================= Мир из карты Minecraft: трава, деревья с яблоками, вода, копание и стройка =================
-const B_AIR = 0, B_STONE = 1, B_DIRT = 2, B_SAND = 3, B_GRAVEL = 4, B_CLAY = 5, B_COAL = 6, B_IRON = 7, B_AMETHYST = 8, B_BEDROCK = 9, B_GRASS = 10, B_LOG = 11, B_LEAVES = 12, B_COBBLE = 13, B_PLANKS = 14, B_TABLE = 15, B_FURNACE = 16;
-const BLOCK_NAMES = ['воздух', 'камень', 'земля', 'песок', 'гравий', 'глина', 'уголь', 'железная руда', 'аметист', 'коренная порода', 'трава', 'бревно', 'листва', 'булыжник', 'доски', 'верстак', 'печь'];
+const B_AIR = 0, B_STONE = 1, B_DIRT = 2, B_SAND = 3, B_GRAVEL = 4, B_CLAY = 5, B_COAL = 6, B_IRON = 7, B_AMETHYST = 8, B_BEDROCK = 9, B_GRASS = 10, B_LOG = 11, B_LEAVES = 12, B_COBBLE = 13, B_PLANKS = 14, B_TABLE = 15, B_FURNACE = 16, B_ROOF = 17; // свод гнезда: держится над ходом, по нему не ходят
+const BLOCK_NAMES = ['воздух', 'камень', 'земля', 'песок', 'гравий', 'глина', 'уголь', 'железная руда', 'аметист', 'коренная порода', 'трава', 'бревно', 'листва', 'булыжник', 'доски', 'верстак', 'печь', 'свод гнезда'];
 // плитка атласа для [верх, бок, низ]
-const TILES = [null, [0, 0, 0], [1, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4], [5, 5, 5], [6, 6, 6], [7, 7, 7], [8, 8, 8], [9, 10, 1], [12, 11, 12], [13, 13, 13], [14, 14, 14], [15, 15, 15], [16, 17, 15], [20, 19, 20]];
+const TILES = [null, [0, 0, 0], [1, 1, 1], [2, 2, 2], [3, 3, 3], [4, 4, 4], [5, 5, 5], [6, 6, 6], [7, 7, 7], [8, 8, 8], [9, 10, 1], [12, 11, 12], [13, 13, 13], [14, 14, 14], [15, 15, 15], [16, 17, 15], [20, 19, 20], [9, 10, 1]];
 const MAPX = MCMAP.X, MAPZ = MCMAP.Z, MAPY = MCMAP.Y, HX = MAPX / 2, HZ = MAPZ / 2, HALF = Math.max(HX, HZ), WORLD = HALF * 2;
 const CARRY = new Set(['block', 'fruit', 'letter']);
 const DIGGABLE = id => id && id !== B_BEDROCK && id !== B_LOG && id !== B_LEAVES;
@@ -42,7 +42,7 @@ class World {
     let y = MAPY - 1;
     while (y >= 0 && !this.b[this.idx(i, y, k)]) y--;
     this.hi[k * MAPX + i] = y + 1;
-    while (y >= 0 && (!this.b[this.idx(i, y, k)] || this.b[this.idx(i, y, k)] === B_LEAVES)) y--;
+    while (y >= 0 && (!this.b[this.idx(i, y, k)] || this.b[this.idx(i, y, k)] === B_LEAVES || this.b[this.idx(i, y, k)] === B_ROOF)) y--;
     this.top[k * MAPX + i] = y + 1;
   }
   // деревья по шаблону из Minecraft — там, где они росли на исходной карте
@@ -129,6 +129,12 @@ class World {
     this.flood(i, k);
     return id;
   }
+  // поставить/убрать блок в любой точке (гнёзда роют изнутри)
+  setB(i, y, k, id) {
+    if (i < 0 || k < 0 || i >= MAPX || k >= MAPZ || y < 1 || y >= MAPY) return;
+    this.b[this.idx(i, y, k)] = id; this.mod[k * MAPX + i] |= id ? 2 : 1;
+    this.recalcCol(i, k); this.markDirty(i, k); if (!id) this.flood(i, k);
+  }
   // положить блок сверху колонны
   place(x, z, id) {
     const c = this.col(x, z); if (c < 0) return false;
@@ -136,6 +142,7 @@ class World {
     if (t >= MAPY - 1) return false;
     const cur = this.b[this.idx(i, t, k)];
     if (cur && cur !== B_LEAVES) return false;
+    for (let y = t; y < this.hi[c]; y++) if (this.b[this.idx(i, y, k)] === B_ROOF) return false; // под сводом гнезда не застраивают
     this.b[this.idx(i, t, k)] = id === B_GRASS ? B_DIRT : id; this.mod[k * MAPX + i] |= 2;
     this.recalcCol(i, k);
     this.markDirty(i, k);

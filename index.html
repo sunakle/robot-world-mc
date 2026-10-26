@@ -89,10 +89,12 @@
       <div class="pill speeds" id="speeds">
         <button data-s="0">Пауза</button><button data-s="1">×1</button><button data-s="5">×5</button><button data-s="20">×20</button><button data-s="100">×100</button><button data-s="Infinity">Макс.</button>
       </div>
+      <div class="pill speeds" id="under"><button id="bUnder" title="Режим наблюдателя: срез земли, видно ходы и камеры гнезда">Под землёй</button><button id="bCutUp" hidden title="Срез выше (PageUp)">▲</button><button id="bCutDn" hidden title="Срез ниже (PageDown)">▼</button></div>
+      <div class="pill muted" id="underSt" hidden></div>
       <div class="pill muted" id="saveSt">Автосохранение</div>
       <div class="pill muted" id="perf"></div>
     </div>
-    <div class="help">ЛКМ — вращать · ПКМ / колёсико / Shift — двигать · колесо — зум к курсору · WASD — ехать · Q/E — поворот · R/F — ближе/дальше · двойной клик — перелететь (по роботу — следить) · Home — общий вид · пробел — пауза</div>
+    <div class="help">ЛКМ — вращать · ПКМ / колёсико / Shift — двигать · колесо — зум к курсору · WASD — ехать · Q/E — поворот · R/F — ближе/дальше · двойной клик — перелететь (по роботу — следить) · Home — общий вид · пробел — пауза · U — под землёй, PageUp/PageDown — срез</div>
     <div id="err"></div>
   </div>
   <div id="split"><button id="collapse" title="Свернуть панель">›</button></div>
@@ -101,7 +103,7 @@
 
     <section class="tab" id="tab-world">
       <h1>Роботы на карте Minecraft</h1>
-      <div class="muted">Карта из Minecraft: трава, деревья с яблоками, вода. Роботы — как норны из Creatures: драйвы, химия, здоровье, психика. Мозг размером с мозг мухи (139 255 нейронов). Копать, рубить, крафтить, строить, драться с зомби они могут — но догадываются сами.</div>
+      <div class="muted">Карта из Minecraft: трава, деревья с яблоками, вода. Роботы — как норны из Creatures: драйвы, химия, здоровье, психика. Мозг размером с мозг муравья (~250 000 нейронов). Живут колониями, как муравьи: у каждой стоянки своя матка, остальные с рождения получают должность — строители роют подземное гнездо, фуражиры носят еду на склад, солдаты охраняют, няньки ухаживают за маткой, разведчики ищут новые места.</div>
       <h2>Вмешаться</h2>
       <div class="btns">
         <button id="bAbc">Добавить алфавит</button>
@@ -123,7 +125,7 @@
 
     <section class="tab" id="tab-robot" hidden>
       <div id="robot"><p class="muted">Кликните по роботу в мире, чтобы увидеть его мозг, гены, знания и статистику.</p></div>
-      <h2 id="flyH" hidden>Проекция мозга (размер мозга мухи)</h2>
+      <h2 id="flyH" hidden>Проекция мозга (размер мозга муравья)</h2>
       <canvas class="chart" id="fly" width="720" height="620" hidden></canvas>
       <h2 id="brainH" hidden>Решающая сеть (растущие ассоциативные нейроны)</h2>
       <canvas class="chart" id="brain" width="720" height="900" hidden></canvas>
@@ -145,6 +147,9 @@
       <canvas class="chart" id="mini" width="596" height="412" hidden style="margin-top:6px;cursor:crosshair"></canvas>
       <h2>Племена мира</h2>
       <table id="tribeTable"></table>
+      <h2>Колонии и касты</h2>
+      <div class="muted">Иерархия как у муравьёв: матка (откладывает яйца за еду со склада) → солдаты → строители → фуражиры → няньки; разведчики ищут новые места. Должность даётся сразу при взрослении — той касты, которой колонии не хватает. Без матки стоянка через 20 с выбирает новую.</div>
+      <table id="colonyTable"></table>
       <h2>Стоянки</h2>
       <table id="campTable"></table>
       <h2>Леса и биомы</h2>
@@ -167,15 +172,16 @@
 </div>
 <script src="js/mcmap.js?v=7"></script>
 <script src="js/engine.js?v=7"></script>
-<script src="js/world.js?v=17"></script>
-<script src="js/biomes.js?v=18"></script>
+<script src="js/world.js?v=30"></script>
+<script src="js/biomes.js?v=30"></script>
 <script src="js/lang.js?v=7"></script>
-<script src="js/flybrain.js?v=7"></script>
-<script src="js/sim.js?v=27"></script>
+<script src="js/flybrain.js?v=32"></script>
+<script src="js/sim.js?v=40"></script>
 <script src="js/tribes.js?v=17"></script>
+<script src="js/ants.js?v=19"></script>
 <script src="js/craft.js?v=17"></script>
-<script src="js/render.js?v=17"></script>
-<script src="js/save.js?v=17"></script>
-<script src="js/ui.js?v=17"></script>
+<script src="js/render.js?v=30"></script>
+<script src="js/save.js?v=30"></script>
+<script src="js/ui.js?v=30"></script>
 </body>
 </html>
