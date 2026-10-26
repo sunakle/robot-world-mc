@@ -2,7 +2,7 @@
 // ================= Отрисовка: блочный мир, вода, роботы-утки и их анимация =================
 let R, B = {};
 const OPAQUE = ['thigh', 'pad', 'shin', 'footTop', 'sole', 'body', 'bodyFix', 'neck', 'dome', 'headFix', 'eye', 'jaw',
-  'fruit', 'root', 'letter', 'block', 'meat', 'tuft', 'melon', 'sprout', 'zHead', 'zBody', 'zArm', 'zLeg'];
+  'fruit', 'cone', 'berry', 'cocoa', 'root', 'letter', 'block', 'meat', 'tuft', 'melon', 'sprout', 'zHead', 'zBody', 'zArm', 'zLeg'];
 const DARK = [0.13, 0.13, 0.15], METAL = [0.62, 0.64, 0.68];
 
 function initRender(canvas) {
@@ -46,6 +46,17 @@ function initRender(canvas) {
       .add(gCyl(0.012, 0.008, 0.08, 6), at(0.005, 0.1, 0, m => M4.rotZ(m, -0.25)), [0.36, 0.22, 0.1])
       .add(leaf, at(0.045, 0.16, 0, m => { M4.rotZ(m, -0.6); M4.scale(m, 0.055, 0.012, 0.028); }), [0.25, 0.62, 0.18]));
   }
+  // плоды других лесов: шишка тайги, гроздь черники, стручок какао
+  mk('cone', new Geo().add(gSphere(1, 10, 8), S(0.08, 0.15, 0.08), [0.45, 0.27, 0.11]).add(gSphere(1, 8, 6), at(0, 0.06, 0, m => M4.scale(m, 0.085, 0.07, 0.085)), [0.55, 0.35, 0.15])
+    .add(gCyl(0.01, 0.008, 0.06, 5), at(0, 0.15, 0), [0.3, 0.2, 0.1]));
+  {
+    const bg = new Geo();
+    for (const [x, y, z] of [[0, 0, 0], [0.07, 0.02, 0.03], [-0.05, 0.03, 0.05], [0.02, 0.07, -0.04], [-0.04, -0.01, -0.05]]) bg.add(gSphere(1, 8, 6), at(x, y, z, m => M4.scale(m, 0.055, 0.055, 0.055)), [0.2, 0.24, 0.62]);
+    bg.add(gSphere(1, 8, 4), at(0.02, 0.1, 0, m => M4.scale(m, 0.07, 0.012, 0.035)), [0.25, 0.55, 0.2]);
+    mk('berry', bg);
+  }
+  mk('cocoa', new Geo().add(gSphere(1, 12, 8), S(0.09, 0.15, 0.09), [0.78, 0.45, 0.14]).add(gSphere(1, 10, 6), at(0, -0.04, 0, m => M4.scale(m, 0.085, 0.08, 0.085)), [0.62, 0.32, 0.1])
+    .add(gCyl(0.012, 0.01, 0.07, 5), at(0, 0.15, 0), [0.35, 0.5, 0.15]));
   mk('root', new Geo().add(gSphere(1, 8, 6), S(0.08, 0.06, 0.2)));
   mk('letter', gBox(0.45, 0.45, 0.45));
   mk('block', gBox(0.32, 0.32, 0.32));
@@ -97,11 +108,12 @@ function buildChunk(cx, cz) {
   const p = [], nn = [], c = [], t = [], ix = [];
   const e = 0.3 / 128; // отступ от края тайла, чтобы не было швов
   for (let k = cz * CH; k < Math.min(MAPZ, cz * CH + CH); k++) for (let i = cx * CH; i < Math.min(MAPX, cx * CH + CH); i++) {
-    const top = world.hi[k * MAPX + i];
+    const top = world.hi[k * MAPX + i], bio = BIOMES[world.biome ? world.biome[k * MAPX + i] : 0];
     for (let y = 0; y < top; y++) {
       const id = world.b[(y * MAPZ + k) * MAPX + i]; if (!id) continue;
       for (const f of FACES) {
         const tile = TILES[id][f.n[1] > 0 ? 0 : f.n[1] < 0 ? 2 : 1], tx = tile % ATL, ty = tile / ATL | 0;
+        const tint = id === B_LEAVES ? bio.leaf : id === B_GRASS && f.n[1] > 0 ? bio.tint : null; // у каждого биома свой цвет травы и листвы
         const [n0, n1, n2] = f.n, ni = i + n0, ny = y + n1, nk = k + n2;
         if (solidAt(ni, ny, nk)) continue;
         const u = f.u, v = f.v, base = p.length / 3, ao = [];
@@ -112,7 +124,7 @@ function buildChunk(cx, cz) {
           const s3 = solidAt(ni + su * u[0] + sv * v[0], ny + su * u[1] + sv * v[1], nk + su * u[2] + sv * v[2]);
           const a = s1 && s2 ? 0 : 3 - (s1 + s2 + s3); ao.push(a);
           const b = AO[a] * (n1 > 0 ? 1 : 0.92);
-          p.push(px - HX, py, pz - HZ); nn.push(n0, n1, n2); c.push(b, b, b);
+          p.push(px - HX, py, pz - HZ); nn.push(n0, n1, n2); if (tint) c.push(b * tint[0], b * tint[1], b * tint[2]); else c.push(b, b, b);
           const fu = cu ? 1 - e * 4 : e * 4, fv = n1 ? (cv ? 1 - e * 4 : e * 4) : (cv ? e * 4 : 1 - e * 4);
           t.push((tx + fu) / ATL, (ty + fv) / 4);
         }
@@ -240,7 +252,7 @@ function pushItem(o, m) {
     case 'meat': B.meat.push(M4.translate(M4.copy(m), 0, 0.06, 0)); break;
     case 'grass': B.tuft.push(m); break;
     case 'melon': if (o.g >= MELON_RIPE) B.melon.push(m); else B.sprout.push(M4.scale(M4.copy(m), 0.6 + o.g / MELON_RIPE * 1.6)); break;
-    case 'fruit': B.fruit.push(M4.translate(M4.copy(m), 0, 0.11, 0)); break;
+    case 'fruit': B[FRUIT_MESH[o.kind] || 'fruit'].push(M4.translate(M4.copy(m), 0, 0.11, 0)); break;
     case 'root': B.root.push(M4.translate(M4.copy(m), 0, 0.06, 0), 0.56, 0.38, 0.22); break;
     case 'letter': { // яркий, крупный, парит и медленно вращается
       const bob = o.carried ? 0 : Math.sin(performance.now() / 600 + o.ch) * 0.06, sc = 1.35 * clamp((LETTER_LIFE - (o.age || 0)) / 60, 0.15, 1);
@@ -255,6 +267,7 @@ function camEye(c) {
   e[1] = Math.max(e[1], world.height(hx, hz) + 0.4, world.waterLevel(hx, hz) + 0.3); // камера не уходит под землю и воду
   return e;
 }
+const FRUIT_MESH = { apple: 'fruit', cone: 'cone', berry: 'berry', cocoa: 'cocoa' };
 const APPLE_SPOTS = [[1.6, 2.85, 0.4], [-1.55, 2.85, -0.6], [0.5, 2.85, 1.6], [-0.6, 2.85, -1.55], [1.5, 3.4, -1.2]];
 const CHUNK_INST = (() => { const d = new Float32Array(INST); d.set(M4.create()); d[16] = d[17] = d[18] = 1; d[21] = 2; return d; })();
 function renderFrame(cam, dt, mul, selected, W, H) {
@@ -276,7 +289,7 @@ function renderFrame(cam, dt, mul, selected, W, H) {
   for (const r of robots) { animRobot(r, dt, mul); drawRobot(r, now); }
   for (const o of world.objects) if (!o.dead && !o.carried) pushItem(o);
   for (const zb of world.zombies) drawZombie(zb, dt);
-  for (const t of world.trees) for (let n = 0; n < t.apples; n++) { const f = APPLE_SPOTS[n]; B.fruit.push(M4.rotY(T(t.x + f[0], t.y + f[1], t.z + f[2]), n * 1.7)); }
+  for (const t of world.trees) for (let n = 0; n < t.apples; n++) { const f = APPLE_SPOTS[n]; B[FRUIT_MESH[t.fruit] || 'fruit'].push(M4.rotY(T(t.x + f[0], t.y + f[1], t.z + f[2]), n * 1.7)); }
   for (const k of OPAQUE) R.drawBatch(B[k]);
   R.blend(true);
   R.drawBatch(B.shadow, 0.28);

@@ -354,10 +354,11 @@ function robotPanel() {
       <h1>${esc(r.name)} <span class="muted" style="font-size:12px">#${r.id}</span></h1>
       <div class="btns"><button data-r="follow">${cam.follow ? 'Не следить' : 'Следить'}</button><button data-r="close">Закрыть</button></div>
     </div>
-    <div style="margin:2px 0 4px"><span class="sw" style="background:${tribeCss(r.tribe)}"></span> племя <b style="color:${tribeCss(r.tribe)}">${esc((tribeOf(r.tribe) || {}).name || '?')}</b>${r.goal ? ' · в походе' : ''}</div>
+    <div style="margin:2px 0 4px"><span class="sw" style="background:${tribeCss(r.tribe)}"></span> племя <b style="color:${tribeCss(r.tribe)}">${esc((tribeOf(r.tribe) || {}).name || '?')}</b>${r.goal ? ' · в походе' : ''}${isExplorer(r) ? ' · <span style="color:#ffd54f">странник</span>' : ''}</div>
+    <div class="muted" style="margin:0 0 4px">место: ${BIOMES[r.bio || 0].ru}${campById(r.camp) ? ' · стоянка у ' + campById(r.camp).biome.toLowerCase() : ''} · знает биомов: ${Object.keys(r.biomes || {}).length} из ${BIOMES.length}${Object.keys(BUFFS).filter(k => buffOn(r, k)).map(k => ` · <span style="color:#81c784">${BUFFS[k]} ${Math.ceil(r.buffs[k] - simTime)} с</span>`).join('')}</div>
     <div class="muted">${stageOf(r)} · поколение ${r.gen} · ${r.parents ? 'родители: ' + esc(r.parents.join(' и ')) : 'первопредок'} · ${sw}</div>
     <h2>Рука</h2>
-    <div class="btns"><button data-r="tickle">Погладить</button><button data-r="slap">Шлёпнуть</button><button data-r="apple">Дать яблоко</button><button data-r="rename">Имя</button></div>
+    <div class="btns"><button data-r="tickle">Погладить</button><button data-r="slap">Шлёпнуть</button><button data-r="apple">Дать плод</button><button data-r="rename">Имя</button></div>
     <div class="muted" style="font-size:11px;margin-top:4px">Погладить — награда за последнее действие («${ACTIONS[r.action]}»), шлёпнуть — наказание. Как в Creatures: робот запомнит.</div>
     <h2>Интеллект</h2>
     <div class="iq"><b>${q}</b><span class="muted">IQ · ${q > 120 ? 'гений племени' : q > 100 ? 'умный' : q > 85 ? 'обычный' : 'простоватый'}</span></div>
@@ -421,7 +422,7 @@ $('robot').onclick = e => {
   if (k === 'follow') cam.follow = !cam.follow;
   else if (k === 'tickle') handTickle(r);
   else if (k === 'slap') handSlap(r);
-  else if (k === 'apple') { const [x, z] = front(r, 0.8); world.add({ t: 'fruit', x: inX(x), z: inZ(z), age: 0 }); }
+  else if (k === 'apple') { const [x, z] = front(r, 0.8); world.add({ t: 'fruit', kind: BIOMES[biomeAt(x, z)].food || 'apple', x: inX(x), z: inZ(z), age: 0 }); }
   else if (k === 'rename') { const n = prompt('Новое имя робота:', r.name); if (n) { r.name = n.slice(0, 20); lifeEvent(r, 'Получил имя ' + r.name); } }
   else { selected = null; cam.follow = false; }
   updatePanels();
@@ -502,6 +503,14 @@ function tribesPanel() {
     const v = getRel(a.id, b.id), st = relStatus(v);
     return `<td style="color:${st[2]}">${st[1]}<br><span class="muted">${v >= 0 ? '+' : ''}${v.toFixed(2)}</span></td>`;
   }).join('') + '</tr>').join('') + '</table>';
+  const camps = G.camps || [];
+  $('campTable').innerHTML = camps.length ? '<tr><th>стоянка</th><th>племя</th><th>жителей</th><th>основал</th><th>состояние</th></tr>' + camps.map(c => {
+    const t = tribeOf(c.tribe), sg = Object.keys(c.siege || {}).filter(k => c.siege[k] > 0);
+    const st = sg.length ? `<span style="color:#e57373">осада: ${sg.map(k => esc((tribeOf(+k) || {}).name || '?')).join(', ')}</span>` : c.pop ? (t && t.capital === c.id ? 'столица' : 'живая') : '<span class="muted">пустует</span>';
+    return `<tr><td>${esc(c.biome)}<br><span class="muted">${Math.round(c.x)}, ${Math.round(c.z)}</span></td><td style="color:${c.tribe ? tribeCss(c.tribe) : ''}">${t ? esc(t.name) : 'ничья'}</td><td>${c.pop || 0}</td><td>${esc(c.founder || '')}<br><span class="muted">${fmtTime(c.founded).replace('День ', 'д')}</span></td><td>${st}</td></tr>`;
+  }).join('') : '<tr><td class="muted">стоянок нет</td></tr>';
+  const bioPop = BIOMES.map(() => 0); for (const r of robots) bioPop[r.bio || 0]++;
+  $('biomeTable').innerHTML = '<tr><th>биом</th><th>сейчас</th><th>свойства</th></tr>' + BIOMES.map((b, i) => `<tr><td><span class="sw" style="background:rgb(${b.tint.map(v => Math.round(Math.min(1, v * 0.55) * 255)).join(',')})"></span> ${b.ru}${b.food ? '<br><span class="muted">' + FOODS[b.food].ru + '</span>' : ''}</td><td>${bioPop[i]}</td><td class="muted">${b.desc}</td></tr>`).join('');
   $('diploLog').innerHTML = (G.diplo || []).slice(0, 30).map(e => `<div><time>${fmtTime(e.t).replace('День ', 'д')}</time>${esc(e.text)}</div>`).join('') || '<div class="muted">Пока тихо.</div>';
   if (!$('mini').hidden) drawMinimap($('mini'));
 }

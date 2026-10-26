@@ -2,7 +2,7 @@
 // ================= Крафт как в Minecraft (начальные предметы), инвентарь, готовка, зомби =================
 const ITEMS = {
   log: 'Бревно', planks: 'Доски', stick: 'Палка', cobble: 'Булыжник', dirt: 'Земля', sand: 'Песок', gravel: 'Гравий', clay: 'Глина',
-  coal: 'Уголь', iron_ore: 'Железная руда', iron: 'Железный слиток', amethyst: 'Аметист', apple: 'Яблоко', meat: 'Сырое мясо', cooked: 'Жареное мясо', seed: 'Семена арбуза',
+  coal: 'Уголь', iron_ore: 'Железная руда', iron: 'Железный слиток', amethyst: 'Аметист', apple: 'Яблоко', cone: 'Кедровые орехи', berry: 'Черника', cocoa: 'Какао-бобы', meat: 'Сырое мясо', cooked: 'Жареное мясо', seed: 'Семена арбуза',
 };
 // какой предмет даёт выкопанный блок
 const DROP = { [B_STONE]: 'cobble', [B_COBBLE]: 'cobble', [B_DIRT]: 'dirt', [B_GRASS]: 'dirt', [B_SAND]: 'sand', [B_GRAVEL]: 'gravel', [B_CLAY]: 'clay', [B_COAL]: 'coal', [B_IRON]: 'iron_ore', [B_AMETHYST]: 'amethyst', [B_PLANKS]: 'planks', [B_TABLE]: 'planks', [B_FURNACE]: 'cobble' };
@@ -74,9 +74,10 @@ function craft(r) {
 }
 // еда из сумки: жареное мясо > яблоко > сырое (от сырого можно заболеть)
 function eatFromBag(r) {
-  const opts = [['cooked', 50, 0], ['apple', 30, 0], ['meat', 25, 0.3]];
+  const opts = [['cooked', 50, 0], ...Object.keys(FOODS).map(k => [k, FOODS[k].e, 0]), ['meat', 25, 0.3]];
   for (const [k, e, sick] of opts) if (bagTake(r, k)) {
     r.energy = Math.min(100, r.energy + e); r.st.food++;
+    if (FOODS[k]) giveBuff(r, FOODS[k].buff);
     if (Math.random() < sick && r.chem.antigen <= 0) { r.chem.antigen = 0.6; r.st.ill++; lifeEvent(r, 'Отравился сырым мясом'); }
     return true;
   }
@@ -128,7 +129,7 @@ function attack(r) {
   const R = reach(r) + 0.6, zb = nearestZombie(r, R);
   r.d[3] = Math.min(1, r.d[3] + 0.03);
   if (zb) {
-    const dmg = [2, 4, 5, 6][r.tools.sword || 0] * (0.6 + 0.8 * r.genes.strength);
+    const dmg = [2, 4, 5, 6][r.tools.sword || 0] * (0.6 + 0.8 * strOf(r));
     zb.hp -= dmg; r.d[10] = Math.max(0, r.d[10] - 0.1); practice(r, 'fight', 3);
     if (zb.hp <= 0) {
       for (let i = 0; i < 3; i++) world.add({ t: 'meat', x: inX(zb.x + rnd(-0.8, 0.8)), z: inZ(zb.z + rnd(-0.8, 0.8)), age: 0 });

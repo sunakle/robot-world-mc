@@ -139,12 +139,16 @@
     </section>
     <section class="tab" id="tab-tribes" hidden>
       <h1>Племена</h1>
-      <div class="muted">Племя рождается само: группа уходит в дальний лес, живёт отдельно, и если её язык заметно разошёлся (или ушли очень далеко), она становится новым племенем со своим названием и цветом. Отношения меняются от встреч, обучения, нападений, споров за землю и похожести языка.</div>
+      <div class="muted">Земля племени — это его стоянки: круг вокруг лагеря, растущий с числом жителей. Новые стоянки основывают только странники (примерно каждый пятый робот с геном «тяга к странствиям»), за ними уходят несколько соплеменников. Новое племя рождается лишь на дальней стоянке (от 50 блоков до чужих и 45 до столицы), когда там живёт хотя бы 5 роботов и их язык разошёлся со столицей. Чужую стоянку захватывают осадой: если враги вдвое превосходят защитников и держатся там 45 секунд, лагерь переходит к ним. Брошенную стоянку занимают мирно. Племя исчезает, только когда умирает последний его житель.</div>
       <h2>Миникарта</h2>
       <div class="btns"><button id="bMini">Открыть миникарту</button></div>
       <canvas class="chart" id="mini" width="596" height="412" hidden style="margin-top:6px;cursor:crosshair"></canvas>
       <h2>Племена мира</h2>
       <table id="tribeTable"></table>
+      <h2>Стоянки</h2>
+      <table id="campTable"></table>
+      <h2>Леса и биомы</h2>
+      <table id="biomeTable"></table>
       <h2>Дипломатия</h2>
       <div id="relMatrix"></div>
       <h2>Летопись</h2>
@@ -163,14 +167,15 @@
 </div>
 <script src="js/mcmap.js?v=7"></script>
 <script src="js/engine.js?v=7"></script>
-<script src="js/world.js?v=7"></script>
+<script src="js/world.js?v=17"></script>
+<script src="js/biomes.js?v=18"></script>
 <script src="js/lang.js?v=7"></script>
 <script src="js/flybrain.js?v=7"></script>
-<script src="js/sim.js?v=16"></script>
-<script src="js/tribes.js?v=16"></script>
-<script src="js/craft.js?v=16"></script>
-<script src="js/render.js?v=7"></script>
-<script src="js/save.js?v=15"></script>
-<script src="js/ui.js?v=7"></script>
+<script src="js/sim.js?v=27"></script>
+<script src="js/tribes.js?v=17"></script>
+<script src="js/craft.js?v=17"></script>
+<script src="js/render.js?v=17"></script>
+<script src="js/save.js?v=17"></script>
+<script src="js/ui.js?v=17"></script>
 </body>
 </html>

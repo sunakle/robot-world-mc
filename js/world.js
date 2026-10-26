@@ -20,6 +20,7 @@ async function gunzip(b64) {
 }
 async function loadMap() { MAP_BLOCKS = await gunzip(MCMAP.blocks); MAP_WATER = await gunzip(MCMAP.water); }
 
+function mulberry(a) { return () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; }; }
 class World {
   constructor(fresh = true) {
     this.b = MAP_BLOCKS.slice();                 // блоки [y][z][x]
@@ -29,8 +30,9 @@ class World {
     this.hi = new Int16Array(MAPX * MAPZ);       // самый высокий блок колонны (для отрисовки)
     this.sea = 0; for (const v of this.wl) if (v > this.sea) this.sea = v;
     this.objects = []; this.removed = false; this.trees = []; this.zombies = [];
-    if (fresh) this.plantTrees();
+    if (fresh) { this.plantTrees(); this.plantJungle(); }
     this.recalcTop();
+    if (fresh) this.setupBiomes();
     if (fresh) for (let n = 0; n < GRASS_MAX; n++) this.spawnGrass();
     this.dirtyChunks = new Set(); this.allDirty = true; this.waterDirty = true;
   }
@@ -44,18 +46,43 @@ class World {
     this.top[k * MAPX + i] = y + 1;
   }
   // деревья по шаблону из Minecraft — там, где они росли на исходной карте
-  plantTrees() {
+  plantTrees() { for (const [i, k] of MCMAP.trees) this.placeTree(i, k); }
+  placeTree(i, k, biome) {
     const T = MCMAP.tree;
-    for (const [i, k] of MCMAP.trees) {
-      let y = MAPY - 1;
-      while (y > 0 && !this.b[this.idx(i, y, k)]) y--;
-      const base = y + 1;
-      if (base + 7 >= MAPY || this.wl[k * MAPX + i] > base) continue;
-      for (const [dx, dy, dz] of T.leaves) { const a = i + dx, c = k + dz, h = base + dy; if (a >= 0 && c >= 0 && a < MAPX && c < MAPZ && !this.b[this.idx(a, h, c)]) this.b[this.idx(a, h, c)] = B_LEAVES; }
-      for (const [dx, dy, dz] of T.log) this.b[this.idx(i + dx, base + dy, k + dz)] = B_LOG;
-      this.b[this.idx(i, base - 1, k)] = B_DIRT;
-      this.trees.push({ i, k, x: i - HX + 0.5, z: k - HZ + 0.5, y: base, apples: 1 + (Math.random() * 3 | 0), max: 5, wood: 4 });
+    let y = MAPY - 1;
+    while (y > 0 && !this.b[this.idx(i, y, k)]) y--;
+    const base = y + 1;
+    if (base + 7 >= MAPY || this.wl[k * MAPX + i] > base || this.b[this.idx(i, y, k)] === B_LEAVES || this.b[this.idx(i, y, k)] === B_LOG) return false;
+    for (const [dx, dy, dz] of T.leaves) { const a = i + dx, c = k + dz, h = base + dy; if (a >= 0 && c >= 0 && a < MAPX && c < MAPZ && !this.b[this.idx(a, h, c)]) this.b[this.idx(a, h, c)] = B_LEAVES; }
+    for (const [dx, dy, dz] of T.log) this.b[this.idx(i + dx, base + dy, k + dz)] = B_LOG;
+    this.b[this.idx(i, base - 1, k)] = B_DIRT;
+    this.trees.push({ i, k, x: i - HX + 0.5, z: k - HZ + 0.5, y: base, apples: 1 + (Math.random() * 3 | 0), max: 5, wood: 4, biome: biome || null });
+    return true;
+  }
+  // джунгли в левом нижнем углу карты (детерминированно — одинаково в каждом новом мире)
+  plantJungle() {
+    const rng = mulberry(7331), N = 46, cx0 = 26, ck0 = MAPZ - 28;
+    let ci = cx0, ck = ck0;
+    for (let rr = 0; rr < 30; rr++) { let found = false; for (let a = 0; a < 6.28 && !found; a += 0.5) { const i = Math.round(cx0 + Math.cos(a) * rr), k = Math.round(ck0 + Math.sin(a) * rr); if (i > 3 && k > 3 && i < MAPX - 4 && k < MAPZ - 4 && this.wl[k * MAPX + i] <= this.surfaceY(i, k)) { ci = i; ck = k; found = true; } } if (found) break; }
+    let placed = 0;
+    for (let t = 0; t < 600 && placed < N; t++) {
+      const a = rng() * 6.283, d = Math.sqrt(rng()) * 22, i = Math.round(ci + Math.cos(a) * d), k = Math.round(ck + Math.sin(a) * d);
+      if (i < 3 || k < 3 || i > MAPX - 4 || k > MAPZ - 4) continue;
+      if (this.trees.some(o => Math.abs(o.i - i) + Math.abs(o.k - k) < 5)) continue;
+      if (this.placeTree(i, k, 'jungle')) placed++;
     }
+  }
+  surfaceY(i, k) { let y = MAPY - 1; while (y > 0 && !this.b[this.idx(i, y, k)]) y--; return y + 1; }
+  // разметка биомов по колонкам и плоды деревьев по биому
+  setupBiomes() {
+    this.forests = findForests(this.trees);
+    this.biome = new Uint8Array(MAPX * MAPZ);
+    for (let k = 0; k < MAPZ; k++) for (let i = 0; i < MAPX; i++) {
+      const x = i - HX + 0.5, z = k - HZ + 0.5; let best = 0, bd = 1e9;
+      for (const f of this.forests) { const d = Math.hypot(x - f.x, z - f.z); if (d < f.r && d / f.r < bd) { bd = d / f.r; best = BI[f.k]; } }
+      this.biome[k * MAPX + i] = best;
+    }
+    for (const t of this.trees) { const b = this.biome[t.k * MAPX + t.i]; t.biome = BIOMES[b].k; t.fruit = BIOMES[b].food || 'apple'; }
   }
   col(x, z) {
     const i = Math.floor(x + HX), k = Math.floor(z + HZ);
@@ -146,7 +173,7 @@ class World {
   // яблоки растут только на деревьях; спелые иногда падают сами, лежащие — гниют
   tick(dt, rate) {
     for (const t of this.trees) {
-      if (t.apples < t.max && Math.random() < 0.018 * rate * dt) t.apples++;
+      if (t.apples < t.max && Math.random() < 0.018 * rate * dt * (t.biome === 'jungle' ? 1.5 : 1)) t.apples++; // в джунглях плоды растут быстрее
       if (t.wood < 4 && Math.random() < 0.01 * dt) t.wood++; // дерево восстанавливается после рубки
       if (t.apples > 2 && Math.random() < 0.004 * dt) { t.apples--; this.dropApple(t); }
     }
@@ -188,6 +215,6 @@ class World {
   dropApple(t) {
     const a = Math.random() * 6.28, d = 0.9 + Math.random() * 1.6;
     const x = inX(t.x + Math.sin(a) * d), z = inZ(t.z + Math.cos(a) * d);
-    if (!this.isWater(x, z)) this.add({ t: 'fruit', x, z, age: 0 });
+    if (!this.isWater(x, z)) this.add({ t: 'fruit', kind: t.fruit || 'apple', x, z, age: 0 });
   }
 }

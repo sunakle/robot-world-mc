@@ -23,8 +23,8 @@ const SET = { mut: 0.5, food: 1, maxPop: 70, lamarck: true };
 const PAL_SHELL = [[0.93, 0.93, 0.9], [0.6, 0.84, 0.92], [0.76, 0.68, 0.92], [0.42, 0.44, 0.48], [0.95, 0.88, 0.74], [0.97, 0.74, 0.8]];
 const PAL_ACC = [[0.98, 0.42, 0.1], [0.98, 0.78, 0.12], [0.52, 0.32, 0.78], [0.86, 0.2, 0.2], [0.2, 0.72, 0.45], [0.16, 0.55, 0.92]];
 const PAL_EYE = [[1, 0.74, 0.1], [0.52, 0.36, 0.86], [0.3, 0.8, 0.95], [0.95, 0.32, 0.3]];
-const GENE_RANGE = { size: [0.75, 1.35], leg: [0.8, 1.25], head: [0.8, 1.3], strength: [0, 1], speed: [0, 1], stamina: [0, 1], brain: [6, 64], learn: [0, 1], instinct: [0, 1], curiosity: [0, 1], social: [0, 1], temper: [0, 1], nerves: [0, 1], immunity: [0, 1], fertility: [0, 1], lifespan: [0, 1], asym: [0, 1] };
-const GENE_NAMES = { size: 'Размер тела', leg: 'Длина ног', head: 'Голова / камера', strength: 'Сила', speed: 'Скорость', stamina: 'Выносливость', brain: 'Нейронов (врождённо)', learn: 'Обучаемость', instinct: 'Сила инстинктов', curiosity: 'Любопытство', social: 'Общительность', temper: 'Вспыльчивость', nerves: 'Тревожность', immunity: 'Иммунитет', fertility: 'Плодовитость', lifespan: 'Долголетие', asym: 'Асимметрия (уродство)' };
+const GENE_RANGE = { size: [0.75, 1.35], leg: [0.8, 1.25], head: [0.8, 1.3], strength: [0, 1], speed: [0, 1], stamina: [0, 1], brain: [6, 64], learn: [0, 1], instinct: [0, 1], curiosity: [0, 1], social: [0, 1], temper: [0, 1], nerves: [0, 1], immunity: [0, 1], fertility: [0, 1], lifespan: [0, 1], asym: [0, 1], wander: [0, 1] };
+const GENE_NAMES = { size: 'Размер тела', leg: 'Длина ног', head: 'Голова / камера', strength: 'Сила', speed: 'Скорость', stamina: 'Выносливость', brain: 'Нейронов (врождённо)', learn: 'Обучаемость', instinct: 'Сила инстинктов', curiosity: 'Любопытство', social: 'Общительность', temper: 'Вспыльчивость', nerves: 'Тревожность', immunity: 'Иммунитет', fertility: 'Плодовитость', lifespan: 'Долголетие', asym: 'Асимметрия (уродство)', wander: 'Тяга к странствиям' };
 const SKILLS = [['walk', 'Ходьба'], ['carry', 'Носить вещи'], ['dig', 'Копать'], ['build', 'Ставить блоки'], ['craft', 'Крафт'], ['fight', 'Драка'], ['jump', 'Прыжки'], ['swim', 'Плавание'], ['farm', 'Земледелие']];
 
 let world, robots, births, simTime, nextId, events, convLog, history, G, objGrid, robGrid, treeGrid, lastSample;
@@ -39,6 +39,7 @@ const SEASONS = ['весна', 'лето', 'осень', 'зима'], SEASON_FOO
 const season = () => Math.floor(simTime / DAY) % 4;
 const growth = r => Math.min(1, r.age / (r.lifespan * 0.22));
 const stageOf = r => { const f = r.age / r.lifespan; return STAGES.find(s => f < s[0])[1]; };
+const isExplorer = r => (r.genes.wander || 0) >= 0.6;
 const isAdult = r => r.age / r.lifespan >= 0.22;
 
 // ---------- пространственная сетка ----------
@@ -59,6 +60,7 @@ function randomGenes() {
   const g = {};
   for (const k in GENE_RANGE) { const [a, b] = GENE_RANGE[k]; g[k] = rnd(a, a + (b - a) * (k === 'brain' ? 0.3 : k === 'asym' ? 0.3 : 1)); }
   g.brain = Math.round(g.brain); g.instinct = rnd(0.6, 1);
+  g.wander = Math.random() < 0.2 ? rnd(0.65, 1) : rnd(0, 0.3); // странники — лишь каждый пятый
   g.shell = Math.random() * PAL_SHELL.length | 0; g.acc = Math.random() * PAL_ACC.length | 0;
   g.foot = Math.random() * PAL_ACC.length | 0; g.eye = Math.random() * PAL_EYE.length | 0;
   return g;
@@ -178,9 +180,9 @@ function initSim() {
   history = { pop: [], iq: [], letters: [], lang: [], brain: [], gen: [], happy: [], skill: [] };
   G = { births: 0, deaths: 0, causes: { голод: 0, жажда: 0, старость: 0, болезнь: 0, зомби: 0, холод: 0, утонул: 0 }, maxGen: 0, bestIQ: 0, bestName: '', letterFirst: new Array(26).fill(false), firstWord: false, alphabet: false, mined: 0, built: 0, firsts: {} };
   lastSample = simTime;
-  // племя начинает в самой лесистой части карты
+  // племя начинает в самой густой части яблоневой рощи
   let bc = world.trees[0] || { x: 0, z: 0 }, bn = -1;
-  for (const t of world.trees) { let n = 0; for (const u of world.trees) if ((u.x - t.x) ** 2 + (u.z - t.z) ** 2 < 625) n++; if (n > bn) { bn = n; bc = t; } }
+  for (const t of world.trees) { if (t.biome !== 'apple') continue; let n = 0; for (const u of world.trees) if ((u.x - t.x) ** 2 + (u.z - t.z) ** 2 < 625) n++; if (n > bn) { bn = n; bc = t; } }
   for (let i = 0; i < 26; i++) {
     let x = bc.x, z = bc.z;
     for (let t = 0; t < 60; t++) { x = inX(bc.x + rnd(-14, 14)); z = inZ(bc.z + rnd(-14, 14)); if (!world.isWater(x, z) && world.topBlock(x, z) !== B_LOG) break; }
@@ -188,8 +190,10 @@ function initSim() {
     r.mem = { water: nearestWaterTo(x, z), tree: { x: bc.x, z: bc.z } }; r.home = { x: bc.x, z: bc.z }; // стоянка племени
     robots.push(r);
   }
-  G.tribes = {}; G.rel = {}; G.terr = {}; G.diplo = []; G.tribeSeq = 0;
-  const t1 = newTribe(robots);
+  robots.forEach((r, i) => { r.genes.wander = i % 5 === 0 ? rnd(0.65, 1) : rnd(0, 0.3); }); // каждый пятый — странник
+  G.tribes = {}; G.rel = {}; G.diplo = []; G.tribeSeq = 0; G.camps = []; G.campSeq = 0;
+  const t1 = newTribe(robots), c1 = newCamp(t1, bc.x, bc.z, robots[0].name);
+  G.tribes[t1].capital = c1.id; for (const r of robots) { r.camp = c1.id; r.biomes = { [biomeAt(r.x, r.z)]: true }; }
   pushEvent(`Карта Minecraft: трава, деревья с яблоками, вода. 26 роботов начинают жизнь — первое племя ${G.tribes[t1].name}.`);
 }
 function pushEvent(text) { events.unshift({ t: simTime, text }); if (events.length > 100) events.pop(); }
@@ -234,6 +238,12 @@ function body(r) {
   r.shelter = clamp((roof && walls >= 3) || walls >= 6 ? 1 : roof || walls >= 4 ? 0.7 : canopy ? 0.4 : walls >= 2 ? 0.25 : 0, 0, 1);
   if (close2 >= 2) r.shelter = Math.min(1, r.shelter + 0.2); // прижались друг к другу
   r.sheltered = r.shelter >= 0.7;
+  const bio = r.bio = biomeAt(r.x, r.z), bk = BIOMES[bio].k;
+  r.biomes = r.biomes || {};
+  if (!r.biomes[bio]) { // новое место — радость открытия (странникам особенно)
+    r.biomes[bio] = true; r.lastNew = simTime; d[9] = 0; c.reward += 0.4 + 0.6 * (g.wander || 0); c.endorphin += 0.3;
+    lifeEvent(r, 'Открыл новый биом: ' + BIOMES[bio].ru); first('biome_' + bk, `${r.name} первым добрался до места «${BIOMES[bio].ru}»`);
+  }
   if (r.shelter >= 0.7 && simTime - (r.homeCheck || 0) > 2) { r.homeCheck = simTime; checkHome(r, walls, roof); }
   const inWater = world.depth(r.x, r.z) > 0.3, deep = world.depth(r.x, r.z) > 0.8;
   if (deep) {
@@ -247,7 +257,7 @@ function body(r) {
   const rest = resting ? 0.45 : 1;
   const se = g.size * (0.55 + 0.45 * growth(r)); // малыши тратят меньше
   r.energy -= (0.13 * se * se + 0.0008 * r.brain.H + g.strength * 0.04 + (r.moving ? 0.1 * r.spd * g.size : 0)) * rest * DT;
-  r.water -= 0.24 * rest * DT;
+  r.water -= 0.24 * rest * (bk === 'jungle' ? 1.4 : 1) * DT; // в джунглях жарко
   r.energy = clamp(r.energy, 0, 100); r.water = clamp(r.water, 0, 100);
   d[0] = 1 - r.energy / 100; d[1] = 1 - r.water / 100;
   // боль: от голода/жажды и падений, утихает (эндорфин помогает)
@@ -257,13 +267,13 @@ function body(r) {
   d[4] += (night ? 0.012 : 0.004) * DT - (resting ? (night ? 0.05 : 0.02) * (r.sheltered ? 1.3 : 0.8) : 0) * DT;
   // холод: ночью без укрытия и в воде; днём, в укрытии и рядом с другими — теплее
   const winter = season() === 3 ? 2 : 1;
-  const chill = night ? 0.016 * winter * (1 - r.shelter) : (winter > 1 ? 0.005 * (1 - r.shelter) : 0);
+  const chill = night ? 0.016 * winter * (bk === 'pine' ? 1.5 : 1) * (1 - r.shelter) : (winter > 1 ? 0.005 * (1 - r.shelter) : 0);
   d[5] += (chill > 0.001 ? chill : -0.02) * DT + (r.shelter >= 0.7 ? -0.015 * DT : 0) + (inWater ? (night || season() === 3 ? 0.025 : 0.004) * DT : 0);
   // одиночество и теснота
   d[6] += (close6 === 0 ? 0.005 * (0.3 + g.social) : -0.012) * DT;
   d[7] += (close3 > 3 ? 0.012 * (close3 - 3) : -0.02) * DT; // толпа раздражает
   // страх и злость остывают; ночью в одиночестве тревожно
-  d[8] = d[8] * Math.exp(-DT / 6) + (night && close6 === 0 ? 0.003 * g.nerves : 0) * DT;
+  d[8] = d[8] * Math.exp(-DT / (buffOn(r, 'calm') ? 2.5 : 6)) + (night && close6 === 0 ? 0.003 * g.nerves : 0) * DT;
   d[10] = d[10] * Math.exp(-DT / 10);
   const zb = nearestZombie(r, 10); if (zb) d[8] += (0.08 * (0.5 + g.nerves) * (1 - Math.hypot(zb.x - r.x, zb.z - r.z) / 10)) * DT;
   // скука копится, если ничего нового
@@ -276,7 +286,7 @@ function body(r) {
   c.endorphin *= Math.exp(-DT / 5);
   c.reward *= Math.exp(-DT / 3); c.punish *= Math.exp(-DT / 3);
   // болезни: подхватывает чаще, когда замёрз и слабый иммунитет
-  if (c.antigen <= 0 && Math.random() < DT * 0.0006 * (1 + 3 * d[5]) * (1.4 - g.immunity)) { c.antigen = 0.6 + Math.random() * 0.4; r.st.ill++; lifeEvent(r, 'Заболел'); }
+  if (c.antigen <= 0 && Math.random() < DT * 0.0006 * (1 + 3 * d[5]) * (1.4 - g.immunity) * (bk === 'birch' ? 1.8 : 1)) { c.antigen = 0.6 + Math.random() * 0.4; r.st.ill++; lifeEvent(r, 'Заболел'); }
   if (c.antigen > 0) {
     c.antibody = Math.min(1, c.antibody + DT * 0.015 * (0.4 + g.immunity));
     c.antigen = Math.max(0, c.antigen - DT * c.antibody * 0.04);
@@ -293,7 +303,7 @@ function body(r) {
   r.health = clamp(r.health + dh * DT, 0, 100);
   // психическое здоровье: хронический стресс его разрушает, спокойствие восстанавливает
   const stress = (d[2] + d[5] + d[6] + d[8] + d[9] + d[10]) / 6;
-  r.mental = clamp(r.mental + (0.35 - stress * 1.6) * DT * 1.2, 0, 100);
+  r.mental = clamp(r.mental + (0.35 - stress * 1.6 + (buffOn(r, 'calm') ? 0.3 : 0) + (bk === 'birch' ? 0.15 : 0)) * DT * 1.2, 0, 100);
   r.happy = happiness(r);
   if (r.health <= 0) r.dead = true;
   if (r.age > r.lifespan) { r.dead = true; r.cause = 'старость'; }
@@ -315,7 +325,7 @@ function updateRobot(r) {
   if (a <= 2 && r.fallT <= 0) {
     if (a === 1) r.yaw += 2.4 * DT; else if (a === 2) r.yaw -= 2.4 * DT;
     // скорость зависит от навыка ходьбы — малыши ковыляют
-    const v = r.spd * (a === 0 ? 1 : 0.5) * (0.2 + 0.8 * r.skill.walk) * (0.55 + 0.45 * growth(r));
+    const v = r.spd * (buffOn(r, 'speed') ? 1.3 : 1) * (a === 0 ? 1 : 0.5) * (0.2 + 0.8 * r.skill.walk) * (0.55 + 0.45 * growth(r));
     const dx = Math.sin(r.yaw) * v * DT, dz = Math.cos(r.yaw) * v * DT;
     // шаг с учётом толщины тела; упёрся в стену — скользит вдоль неё
     const f = stepBody(r, r.x + dx, r.z + dz) || stepBody(r, r.x + dx, r.z) || stepBody(r, r.x, r.z + dz);
@@ -403,7 +413,7 @@ function jump(r) {
   practice(r, 'jump', 3);
   if (!t) return;
   const dh = world.height(t[0], t[1]) - r.y;
-  const chance = (0.2 + 0.75 * r.skill.jump) * (0.6 + 0.5 * r.genes.strength) * (dh > 1.05 ? 0.8 : 1.2) * (0.55 + 0.45 * growth(r));
+  const chance = (0.2 + 0.75 * r.skill.jump) * (0.6 + 0.5 * strOf(r)) * (dh > 1.05 ? 0.8 : 1.2) * (0.55 + 0.45 * growth(r));
   if (Math.random() < chance) {
     r.x = t[0]; r.z = t[1]; r.d[9] = Math.max(0, r.d[9] - 0.05);
     first('jump', `${r.name} первым запрыгнул на уступ`);
@@ -460,36 +470,46 @@ function steerTo(L, r, x, z, kb) {
 }
 function exploreGoal(r) {
   const g = r.genes, I = r.inp;
-  if (Math.max(I[0], I[1]) > 0.45 || ['Малыш', 'Ребёнок'].includes(stageOf(r))) return null;
+  if (r.goal && !isExplorer(r) && Math.max(I[0], I[1]) > 0.62) { r.goal = null; lifeEvent(r, 'Вернулся с полпути: голодно'); } // спутник сдаётся, странник — нет
+  if (Math.max(I[0], I[1]) > (isExplorer(r) || (r.goal && r.goal.follow) ? 0.62 : 0.45) || ['Малыш', 'Ребёнок'].includes(stageOf(r))) return null;
   if (r.goal && simTime < r.goal.until) {
     if ((r.goal.x - r.x) ** 2 + (r.goal.z - r.z) ** 2 < 16) {
       r.mem.tree = { x: r.goal.x, z: r.goal.z }; const w = nearestWaterTo(r.x, r.z); if (w && Math.hypot(w.x - r.x, w.z - r.z) < 35) r.mem.water = w; // новый дом: здесь и вода рядом
-      lifeEvent(r, 'Дошёл до нового леса'); r.home = { x: r.goal.x, z: r.goal.z }; r.goal = null; r.settled = simTime + 700; return null;
+      lifeEvent(r, 'Дошёл до места: ' + BIOMES[biomeAt(r.x, r.z)].ru);
+      arriveAt(r, r.goal.x, r.goal.z, isExplorer(r) || !!r.goal.follow); // поход странника — новая стоянка, кто бы ни дошёл первым
+      r.goal = null; r.settled = simTime + (isExplorer(r) ? 500 : 900); return null;
     }
+    // в пути пьёт из ближайшей воды и ищет еду у цели, а не возвращается к старому дому
+    if (I[1] > 0.25 && simTime > (r.wT || 0)) { r.wT = simTime + 8; const w = nearestWaterTo(r.x, r.z); if (w && Math.hypot(w.x - r.x, w.z - r.z) < 40) r.mem.water = w; }
+    r.mem.tree = { x: r.goal.x, z: r.goal.z };
     return r.goal;
   }
   r.goal = null;
   if (simTime < (r.settled || 0)) return null; // осел на новом месте — живёт тут
-  // переселение — когда тесно или вокруг кончилась еда, и только у любопытных
+  // в поход сами собираются только странники; остальные — лишь когда совсем тесно или голодно
+  const ex = isExplorer(r);
   const crowded = I[7] > 0.25, scarce = I[0] > 0.3 && !r.near.food && !(r.near.tree && r.near.tree.apples > 0);
-  if (!crowded && !scarce) return null;
-  if (Math.random() > 0.003 + 0.02 * g.curiosity) return null;
-  // дальний лес, по возможности — ничей
+  if (!ex && !crowded && !scarce) return null;
+  if (ex && season() >= 2) return null; // в дальний путь — только весной и летом
+  if (Math.random() > (ex ? 0.004 + 0.01 * g.wander : 0.002 + 0.006 * g.curiosity)) return null;
+  // цель: далёкий лес, лучше — в биоме, где ещё не бывал, и не на чужой земле
   let best = null, bs = -1;
-  for (let i = 0; i < 12; i++) {
-    const t = pick(world.trees), d = Math.hypot(t.x - r.x, t.z - r.z);
-    if (d < 25 || d > 90) continue;
-    const owner = territoryOwner(Math.floor((t.x + HX) / TERR) + ',' + Math.floor((t.z + HZ) / TERR));
-    const sc = (owner && owner !== r.tribe ? 0.3 : 1) * (1 + t.apples * 0.2) * (0.5 + Math.random());
+  const unknown = ex ? world.trees.filter(t => t.biome && !(r.biomes || {})[BI[t.biome]]) : [];
+  for (let i = 0; i < 16; i++) {
+    const t = unknown.length && Math.random() < 0.6 ? pick(unknown) : pick(world.trees), dd = Math.hypot(t.x - r.x, t.z - r.z);
+    if (dd < (ex ? 40 : 20) || dd > (ex ? 140 : 70)) continue; // дальние леса осваиваются ступеньками, через новые стоянки
+    const owner = territoryOwnerXZ(t.x, t.z), bi = BI[t.biome || 'apple'] ?? 1;
+    const sc = (owner && owner !== r.tribe ? (ex ? 0.15 : 0.3) : 1) * (ex && !(r.biomes || {})[bi] ? 3 : 1) * (1 + t.apples * 0.2) * (0.5 + Math.random());
     if (sc > bs) { bs = sc; best = t; }
   }
   if (!best) return null;
-  r.goal = { x: best.x, z: best.z, until: simTime + 320 };
-  lifeEvent(r, crowded ? 'Решил уйти: слишком тесно' : 'Решил уйти искать еду');
-  // переселенцы: любопытные соседи по племени идут следом
-  near(robGrid, r.x, r.z, 9, o => {
-    if (o === r || o.tribe !== r.tribe || o.goal || o.genes.curiosity < 0.35 || Math.max(o.d[0], o.d[1]) > 0.45 || ['Малыш', 'Ребёнок'].includes(stageOf(o))) return;
-    if (simTime >= (o.settled || 0) && Math.random() < 0.5 + o.genes.social * 0.4) o.goal = { x: best.x + rnd(-3, 3), z: best.z + rnd(-3, 3), until: simTime + 340, follow: r.name };
+  r.goal = { x: best.x, z: best.z, until: simTime + (ex ? 900 : 320) };
+  lifeEvent(r, ex ? 'Отправился исследовать: ' + BIOMES[BI[best.biome || 'apple'] ?? 1].ru : crowded ? 'Решил уйти: слишком тесно' : 'Решил уйти искать еду');
+  // за странником идут несколько соплеменников — так возникают новые стоянки
+  let nf = 0;
+  if (ex) near(robGrid, r.x, r.z, 12, o => {
+    if (nf >= 6 || o === r || o.tribe !== r.tribe || o.goal || isExplorer(o) || Math.max(o.d[0], o.d[1]) > 0.45 || ['Малыш', 'Ребёнок'].includes(stageOf(o))) return;
+    if (simTime >= (o.settled || 0) && Math.random() < 0.35 + o.genes.social * 0.35 + o.genes.curiosity * 0.2 && ++nf) o.goal = { x: best.x + rnd(-3, 3), z: best.z + rnd(-3, 3), until: simTime + 940, follow: r.name };
   });
   return r.goal;
 }
@@ -519,7 +539,7 @@ function plant(r) {
   discover(r, 'plant'); inspire(r, 'skill', 'farm');
   first('plant', `${r.name} первым посадил арбуз у воды`);
 }
-function learnFactor(r) { return (0.25 + r.genes.learn) * (0.35 + r.brain.H / 50) * (0.5 + r.mental / 200); }
+function learnFactor(r) { return (buffOn(r, 'int') ? 1.5 : 1) * (0.25 + r.genes.learn) * (0.35 + r.brain.H / 50) * (0.5 + r.mental / 200); }
 function practice(r, k, amt) {
   const before = r.skill[k];
   r.skill[k] = Math.min(1, before + amt * DT * learnFactor(r) * (1 - before * 0.5));
@@ -593,7 +613,7 @@ function sense(r) {
   best.grass = grass; best.enemy = enemy;
   if (I[49]) { best.land = null; for (let k = 0; k < 12 && !best.land; k++) for (let s2 = 1.5; s2 <= 12; s2 += 1.5) { const a2 = k / 12 * 6.283, lx = r.x + Math.sin(a2) * s2, lz = r.z + Math.cos(a2) * s2; if (!world.isWater(lx, lz) && world.height(lx, lz) - r.y < 1.6) { best.land = { x: lx, z: lz }; break; } } }
   I[44] = stationNear(r, B_TABLE) ? 1 : 0; I[45] = stationNear(r, B_FURNACE) ? 1 : 0;
-  I[46] = (r.inv.apple || r.inv.cooked || r.inv.meat) ? 1 : 0; I[47] = PLACEABLE.some(p => r.inv[p[0]]) ? 1 : 0; I[48] = r.tools.sword ? 1 : 0;
+  I[46] = (r.inv.cooked || r.inv.meat || Object.keys(FOODS).some(k => r.inv[k])) ? 1 : 0; I[47] = PLACEABLE.some(p => r.inv[p[0]]) ? 1 : 0; I[48] = r.tools.sword ? 1 : 0;
   // сетчатка мухи: 24 направления × 8 признаков
   const V = r.vision || (r.vision = new Float32Array(VIS_RAYS * VIS_FEAT));
   V.fill(0);
@@ -680,8 +700,8 @@ function instinct(r) {
   // поход в новый лес перебивают только голод, жажда и опасность
   let exploring = false;
   const gl = exploreGoal(r);
-  if (gl && (!best || !best[4] || bu < 0.55)) { // в пути отвлекают только сильный голод/жажда, а не пара и не мелочи
-    exploring = true; best = null; steerTo(L, r, gl.x, gl.z, k * 1.4);
+  if (gl && (!best || !best[4] || bu < (isExplorer(r) || gl.follow ? 0.75 : 0.55))) { // в пути отвлекают только сильный голод/жажда, а не пара и не мелочи
+    exploring = true; best = null; steerTo(L, r, gl.x, gl.z, k * 1.4); L[0] += k * 0.8; if (r.d[3] < 0.7) L[8] -= k * 2.5; // в пути не рассиживаться
     r.intent = { label: gl.follow ? 'идёт за ' + gl.follow + ' в новые места' : 'исследует новые места', x: gl.x, z: gl.z };
   }
   if (best) {
@@ -821,14 +841,16 @@ function interact(r) {
 function eat(r, o) {
   o.dead = true; world.removed = true;
   if (o.t === 'melon') { r.energy = Math.min(100, r.energy + 40); r.water = Math.min(100, r.water + 20); bagAdd(r, 'seed', 1 + (Math.random() < 0.5 ? 1 : 0)); r.st.food++; r.st.melons = (r.st.melons || 0) + 1; first('melon', `${r.name} первым съел выращенный арбуз`); return; }
-  r.energy = Math.min(100, r.energy + (o.t === 'meat' ? 25 : 30)); r.st.food++;
+  const fd = o.t === 'fruit' ? FOODS[o.kind || 'apple'] : null;
+  r.energy = Math.min(100, r.energy + (fd ? fd.e : 25)); r.st.food++;
+  if (fd) giveBuff(r, fd.buff);
   if (o.t === 'meat' && Math.random() < 0.3 && r.chem.antigen <= 0) { r.chem.antigen = 0.6; r.st.ill++; lifeEvent(r, 'Отравился сырым мясом'); }
-  first('eat', `${r.name} первым поел яблоко`);
+  first('eat', `${r.name} первым поел плоды`);
 }
 function drink(r) { r.water = Math.min(100, r.water + 35); r.st.drink++; }
 function shake(r, t) {
   r.st.shakes++; r.d[3] = Math.min(1, r.d[3] + 0.02);
-  if (t.apples > 0 && Math.random() < 0.35 + r.genes.strength * 0.5) {
+  if (t.apples > 0 && Math.random() < 0.35 + strOf(r) * 0.5) {
     t.apples--; world.dropApple(t);
     first('shake', `${r.name} догадался трясти дерево, чтобы упали яблоки`);
   } else annoy(r, 0.02);
@@ -878,7 +900,7 @@ function dig(r) {
   r.st.digs++; practice(r, 'dig', 2);
   const tool = hard ? r.tools.pick : r.tools.shovel;
   // камень без кирки почти не поддаётся; железная руда — только каменной киркой и лучше (как в Minecraft)
-  const chance = (0.15 + 0.75 * r.skill.dig) * (hard ? (tool ? 0.4 + tool * 0.2 : 0.06) * (0.6 + r.genes.strength * 0.6) : 1 + tool * 0.3);
+  const chance = (0.15 + 0.75 * r.skill.dig) * (hard ? (tool ? 0.4 + tool * 0.2 : 0.06) * (0.6 + strOf(r) * 0.6) : 1 + tool * 0.3);
   if (Math.random() > chance) { annoy(r); return; }
   if (!world.dig(x, z)) return;
   r.st.mined[id] = (r.st.mined[id] || 0) + 1; G.mined++;
@@ -897,7 +919,7 @@ function carryToggle(r) {
   if (o) {
     if (o.t === 'letter') { o.carried = true; r.carry = o; }
     else {
-      const k = o.t === 'fruit' ? 'apple' : o.t === 'meat' ? 'meat' : DROP[o.id] || 'dirt';
+      const k = o.t === 'fruit' ? (o.kind || 'apple') : o.t === 'meat' ? 'meat' : DROP[o.id] || 'dirt';
       if (!bagAdd(r, k)) { annoy(r, 0.02); return; }
       o.dead = true; world.removed = true;
     }
@@ -920,7 +942,7 @@ function dropCarry(r) {
   if (r.carry) { const c = r.carry; c.carried = false; r.carry = null; c.x = r.x; c.z = r.z; return; }
   const ks = Object.keys(r.inv); if (!ks.length) return;
   const k = pick(ks); bagTake(r, k);
-  if (k === 'apple') world.add({ t: 'fruit', x: r.x, z: r.z, age: 0 });
+  if (FOODS[k]) world.add({ t: 'fruit', kind: k, x: r.x, z: r.z, age: 0 });
   else if (k === 'meat') world.add({ t: 'meat', x: r.x, z: r.z, age: 0 });
 }
 
@@ -941,13 +963,16 @@ function tryMate(r) {
 }
 function makeChild(a, b) {
   const genes = crossGenes(a.genes, b.genes);
+  // тяга к странствиям наследуется целиком от одного из родителей, иногда появляется заново
+  genes.wander = (Math.random() < 0.5 ? a : b).genes.wander || 0;
+  if (genes.wander >= 0.6 ? Math.random() < 0.08 : Math.random() < 0.06) genes.wander = genes.wander >= 0.6 ? rnd(0, 0.3) : rnd(0.65, 1); // равновесие — около 20% странников
   if (SET.lamarck) {
     const hi = Math.max(a.brain.H, b.brain.H), lo = Math.min(a.brain.H, b.brain.H);
     genes.brain = clamp(Math.round(hi * 0.7 + lo * 0.3 + (genes.brain - (a.genes.brain + b.genes.brain) / 2)), 6, 64);
   }
   const brain = childBrain(SET.lamarck ? a.brain : a.innate, SET.lamarck ? b.brain : b.innate, genes.brain);
   const c = makeRobot(genes, brain, inX(a.x + rnd(-1, 1)), inZ(a.z + rnd(-1, 1)), Math.max(a.gen, b.gen) + 1, a === b ? [a.name] : [a.name, b.name]);
-  c.energy = 70; c.mem = { ...a.mem }; c.fly = childFly(a.fly, b.fly); c.tribe = a.tribe; c.settled = a.settled || 0; c.home = a.home ? { ...a.home } : { x: a.x, z: a.z };
+  c.energy = 70; c.mem = { ...a.mem }; c.fly = childFly(a.fly, b.fly); c.tribe = a.tribe; c.camp = a.camp; c.biomes = { ...(a.biomes || {}) }; c.settled = a.settled || 0; c.home = a.home ? { ...a.home } : { x: a.x, z: a.z };
   if (SET.lamarck) for (const k in a.rp) c.rp[k] = ((a.rp[k] || 0) + (b.rp[k] || 0)) / 2;
   if (SET.lamarck) {
     for (let k = 0; k < 26; k++) c.letters[k] = Math.max(a.letters[k], b.letters[k]) * 0.97;

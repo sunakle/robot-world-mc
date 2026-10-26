@@ -1,7 +1,7 @@
 'use strict';
 // ================= Автосохранение: весь мир в IndexedDB браузера (раз в минуту и при закрытии) =================
 // Сохраняем «как есть» (типизированные массивы без перевода в текст) — быстро и без лимита localStorage.
-const SAVE_DB = 'robot-world-mc', SAVE_STORE = 'saves', SAVE_KEY = 'auto', SAVE_VERSION = 5;
+const SAVE_DB = 'robot-world-mc', SAVE_STORE = 'saves', SAVE_KEY = 'auto', SAVE_VERSION = 6;
 let saveBusy = false, lastSaveAt = 0, saveStatus = 'автосохранения ещё не было';
 
 function idb() {
@@ -16,7 +16,7 @@ async function idbGet() { const db = await idb(); return new Promise((res, rej) 
 async function idbClear() { const db = await idb(); return new Promise(res => { const tx = db.transaction(SAVE_STORE, 'readwrite'); tx.objectStore(SAVE_STORE).delete(SAVE_KEY); tx.oncomplete = () => { db.close(); res(); }; }); }
 
 const brainCopy = b => ({ H: b.H, W1: b.W1.slice(), b1: b.b1.slice(), W2: b.W2.slice(), b2: b.b2.slice() });
-const ROBOT_KEEP = ['id', 'name', 'genes', 'x', 'z', 'yaw', 'energy', 'water', 'health', 'mental', 'age', 'gen', 'parents', 'vocab', 'st', 'lifespan', 'skill', 'chem', 'mem', 'life', 'inv', 'tools', 'rp', 'known', 'mateCool', 'tribe', 'goal', 'settled', 'home'];
+const ROBOT_KEEP = ['id', 'name', 'genes', 'x', 'z', 'yaw', 'energy', 'water', 'health', 'mental', 'age', 'gen', 'parents', 'vocab', 'st', 'lifespan', 'skill', 'chem', 'mem', 'life', 'inv', 'tools', 'rp', 'known', 'mateCool', 'tribe', 'goal', 'settled', 'home', 'camp', 'buffs', 'biomes'];
 // снимок всего мира (глубокая копия, чтобы симуляция могла идти дальше)
 function snapshot() {
   return {
@@ -35,7 +35,7 @@ function snapshot() {
 function restore(d) {
   world = new World(false);
   world.b.set(d.blocks); world.wl.set(d.water); if (d.mod) world.mod.set(d.mod);
-  world.trees = d.trees; world.recalcTop(); world.objects = d.objects; world.zombies = d.zombies || []; world.allDirty = true;
+  world.trees = d.trees; world.recalcTop(); world.setupBiomes(); world.objects = d.objects; world.zombies = d.zombies || []; world.allDirty = true;
   treeGrid = null;
   simTime = d.simTime; nextId = d.nextId; Object.assign(SET, d.SET); G = d.G; events = d.events; history = d.history; convLog = d.convLog || [];
   births = []; robots = []; lastSample = simTime;
