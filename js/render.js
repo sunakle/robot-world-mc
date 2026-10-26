@@ -2,7 +2,7 @@
 // ================= Отрисовка: блочный мир, вода, роботы-утки и их анимация =================
 let R, B = {};
 const OPAQUE = ['thigh', 'pad', 'shin', 'footTop', 'sole', 'body', 'bodyFix', 'neck', 'dome', 'headFix', 'eye', 'jaw',
-  'fruit', 'root', 'letter', 'block', 'meat', 'zHead', 'zBody', 'zArm', 'zLeg'];
+  'fruit', 'root', 'letter', 'block', 'meat', 'tuft', 'melon', 'sprout', 'zHead', 'zBody', 'zArm', 'zLeg'];
 const DARK = [0.13, 0.13, 0.15], METAL = [0.62, 0.64, 0.68];
 
 function initRender(canvas) {
@@ -49,6 +49,19 @@ function initRender(canvas) {
   mk('root', new Geo().add(gSphere(1, 8, 6), S(0.08, 0.06, 0.2)));
   mk('letter', gBox(0.45, 0.45, 0.45));
   mk('block', gBox(0.32, 0.32, 0.32));
+  // пучок травы: несколько тонких «лезвий» крест-накрест
+  {
+    const tuft = new Geo();
+    for (let i = 0; i < 5; i++) { const a = i * 1.26, h = 0.35 + (i % 3) * 0.12; tuft.add(gBox(0.05, h, 0.012), at(Math.sin(a) * 0.06, h / 2, Math.cos(a) * 0.06, m => { M4.rotY(m, a); M4.rotZ(m, (i % 2 ? 0.2 : -0.2)); }), [0.3 + i * 0.03, 0.62 + i * 0.03, 0.22]); }
+    mk('tuft', tuft);
+  }
+  // арбуз: полосатый зелёный, росток и плеть
+  {
+    const ml = gSphere(1, 14, 10);
+    for (let k = 0; k < ml.vcount; k++) { const a = Math.atan2(ml.p[k * 3 + 1], ml.p[k * 3]), st = Math.sin(a * 6) > 0.2; ml.c[k * 3] = st ? 0.14 : 0.32; ml.c[k * 3 + 1] = st ? 0.4 : 0.62; ml.c[k * 3 + 2] = st ? 0.12 : 0.22; }
+    mk('melon', new Geo().add(ml, M4.scale(T(0, 0.24, 0), 0.32, 0.26, 0.4)).add(gCyl(0.015, 0.01, 0.12, 5), T(0, 0.48, -0.25), [0.4, 0.3, 0.12]));
+    mk('sprout', new Geo().add(gCyl(0.015, 0.012, 0.18, 5), null, [0.3, 0.6, 0.2]).add(gBox(0.16, 0.012, 0.09), T(0.06, 0.17, 0), [0.32, 0.66, 0.24]).add(gBox(0.14, 0.012, 0.08), T(-0.05, 0.13, 0.02), [0.28, 0.6, 0.2]));
+  }
   mk('meat', new Geo().add(gBox(0.32, 0.12, 0.22), null, [0.85, 0.35, 0.35]).add(gBox(0.08, 0.08, 0.3), T(0.12, 0.02, 0), [0.95, 0.9, 0.85]));
   // зомби из Minecraft (по скину): зелёная голова и руки, бирюзовая рубашка, синие штаны
   const ZG = [0.33, 0.55, 0.3], ZS = [0.15, 0.62, 0.65], ZP = [0.25, 0.25, 0.6];
@@ -201,7 +214,7 @@ function drawRobot(r, now) {
   M4.rotX(jaw, talking ? 0.35 * Math.abs(Math.sin(A.t * 16)) : 0); M4.translate(jaw, 0, 0, 0.42);
   B.jaw.push(jaw, ...ac);
   if (r.carry) pushItem(r.carry, M4.translate(M4.copy(head), 0, -0.12, 0.62));
-  B.shadow.push(M4.scale(T(r.x, ry + 0.03, r.z), s), 0, 0, 0);
+  B.shadow.push(M4.scale(T(r.x, ry + 0.03, r.z), s * 1.15), ...(G.tribes ? tribeColor(r.tribe).map(v => v * 0.8) : [0, 0, 0]));
 }
 
 function drawZombie(zb, dt) {
@@ -225,6 +238,8 @@ function pushItem(o, m) {
   switch (o.t) {
     case 'block': { const tl = TILES[o.id][1]; B.block.push(M4.translate(M4.copy(m), 0, 0.16, 0), 1, 1, 1, (tl % ATL) / ATL, (tl / ATL | 0) / 4, 3); break; }
     case 'meat': B.meat.push(M4.translate(M4.copy(m), 0, 0.06, 0)); break;
+    case 'grass': B.tuft.push(m); break;
+    case 'melon': if (o.g >= MELON_RIPE) B.melon.push(m); else B.sprout.push(M4.scale(M4.copy(m), 0.6 + o.g / MELON_RIPE * 1.6)); break;
     case 'fruit': B.fruit.push(M4.translate(M4.copy(m), 0, 0.11, 0)); break;
     case 'root': B.root.push(M4.translate(M4.copy(m), 0, 0.06, 0), 0.56, 0.38, 0.22); break;
     case 'letter': { // яркий, крупный, парит и медленно вращается

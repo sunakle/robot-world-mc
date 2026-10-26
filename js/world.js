@@ -8,6 +8,7 @@ const MAPX = MCMAP.X, MAPZ = MCMAP.Z, MAPY = MCMAP.Y, HX = MAPX / 2, HZ = MAPZ /
 const CARRY = new Set(['block', 'fruit', 'letter']);
 const DIGGABLE = id => id && id !== B_BEDROCK && id !== B_LOG && id !== B_LEAVES;
 const ATL = 8; // столбцов в атласе
+const GRASS_MAX = 380; // травы немного — так быстрее
 const LETTER_LIFE = 420; // сколько игровых секунд живёт кубик с буквой
 const inX = x => Math.max(-HX + 0.5, Math.min(HX - 0.5, x)), inZ = z => Math.max(-HZ + 0.5, Math.min(HZ - 0.5, z));
 
@@ -30,6 +31,7 @@ class World {
     this.objects = []; this.removed = false; this.trees = []; this.zombies = [];
     if (fresh) this.plantTrees();
     this.recalcTop();
+    if (fresh) for (let n = 0; n < GRASS_MAX; n++) this.spawnGrass();
     this.dirtyChunks = new Set(); this.allDirty = true; this.waterDirty = true;
   }
   idx(i, y, k) { return (y * MAPZ + k) * MAPX + i; }
@@ -156,6 +158,13 @@ class World {
     }
     if (G.alphabet && letters === 0) { G.alphabet = false; pushEvent('Алфавит рассыпался. Роботы помнят только то, что успели выучить.'); }
     for (const o of this.objects) if ((o.t === 'fruit' || o.t === 'meat') && !o.carried && (o.age = (o.age || 0) + dt) > 200) { o.dead = true; this.removed = true; }
+    // арбузы растут, у воды быстрее; трава понемногу отрастает
+    let grassN = 0;
+    for (const o of this.objects) {
+      if (o.t === 'grass' && !o.dead) grassN++;
+      else if (o.t === 'melon' && !o.dead && o.g < MELON_RIPE) o.g += dt * rate * 1.2;
+    }
+    if (grassN < GRASS_MAX && Math.random() < dt * 0.3) this.spawnGrass();
     // трава понемногу зарастает голую землю рядом с травой
     for (let n = 0; n < 6; n++) {
       if (Math.random() > dt * 8) continue;
@@ -166,6 +175,14 @@ class World {
         const nt = this.top[b * MAPX + a];
         if (Math.abs(nt - t) <= 1 && this.b[this.idx(a, nt - 1, b)] === B_GRASS) { this.b[this.idx(i, t - 1, k)] = B_GRASS; this.markDirty(i, k); break; }
       }
+    }
+  }
+  // редкая высокая трава (из неё падают семена арбуза)
+  spawnGrass() {
+    for (let t = 0; t < 8; t++) {
+      const x = (Math.random() - 0.5) * (MAPX - 4), z = (Math.random() - 0.5) * (MAPZ - 4), c = this.col(x, z);
+      if (c < 0 || this.topBlock(x, z) !== B_GRASS || this.wl[c] > this.top[c] || this.hi[c] > this.top[c]) continue;
+      this.add({ t: 'grass', x, z, rot: Math.random() * 6 }); return;
     }
   }
   dropApple(t) {

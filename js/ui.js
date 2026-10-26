@@ -23,7 +23,7 @@ document.querySelector('.tabs').onclick = e => {
   const b = e.target.closest('button'); if (!b) return;
   tab = b.dataset.tab;
   for (const x of document.querySelectorAll('.tabs button')) x.classList.toggle('on', x === b);
-  for (const id of ['world', 'robot', 'lang', 'craft']) $('tab-' + id).hidden = id !== tab;
+  for (const id of ['world', 'robot', 'lang', 'craft', 'tribes']) $('tab-' + id).hidden = id !== tab;
   updatePanels();
 };
 const groundTarget = () => {
@@ -48,7 +48,7 @@ $('bNew').onclick = () => {
   const b = $('bNew');
   if (!b.dataset.sure) { b.dataset.sure = '1'; b.textContent = 'Точно начать заново? Нажмите ещё раз'; setTimeout(() => { delete b.dataset.sure; b.textContent = 'Заново'; }, 4000); return; }
   delete b.dataset.sure; b.textContent = 'Заново';
-  initSim(); buildWorldMeshes(); selected = null; cam.follow = false; autosave();
+  initSim(); buildWorldMeshes(); miniBase = null; selected = null; cam.follow = false; autosave();
   let mx = 0, mz = 0; for (const r of robots) { mx += r.x; mz += r.z; }
   goal.tx = mx / robots.length; goal.tz = mz / robots.length; goal.dist = 55;
   lastSample = simTime; simMark = simTime; updatePanels();
@@ -354,6 +354,7 @@ function robotPanel() {
       <h1>${esc(r.name)} <span class="muted" style="font-size:12px">#${r.id}</span></h1>
       <div class="btns"><button data-r="follow">${cam.follow ? 'Не следить' : 'Следить'}</button><button data-r="close">Закрыть</button></div>
     </div>
+    <div style="margin:2px 0 4px"><span class="sw" style="background:${tribeCss(r.tribe)}"></span> племя <b style="color:${tribeCss(r.tribe)}">${esc((tribeOf(r.tribe) || {}).name || '?')}</b>${r.goal ? ' · в походе' : ''}</div>
     <div class="muted">${stageOf(r)} · поколение ${r.gen} · ${r.parents ? 'родители: ' + esc(r.parents.join(' и ')) : 'первопредок'} · ${sw}</div>
     <h2>Рука</h2>
     <div class="btns"><button data-r="tickle">Погладить</button><button data-r="slap">Шлёпнуть</button><button data-r="apple">Дать яблоко</button><button data-r="rename">Имя</button></div>
@@ -432,7 +433,7 @@ function worldPanel() {
   for (const r of robots) { const q = iq(r); iqS += q; iqMax = Math.max(iqMax, q); br += r.brain.H; lt += knownCount(r); gen += r.gen; }
   const c = G.causes;
   $('gstats').innerHTML = [
-    ['Роботов', robots.length, C.pop], ['Поколение (макс)', G.maxGen, C.gen], ['Поколение (ср.)', (gen / n).toFixed(1), C.gen],
+    ['Роботов', robots.length, C.pop], ['Племён', Object.values(G.tribes || {}).filter(t => t.alive).length, C.gen], ['Поколение (макс)', G.maxGen, C.gen], ['Поколение (ср.)', (gen / n).toFixed(1), C.gen],
     ['Средний IQ', (iqS / n).toFixed(0), C.iq], ['Макс. IQ сейчас', iqMax, C.iq], ['Рекорд IQ', `${G.bestIQ}`, C.iq],
     ['Нейронов (ср.)', Math.round(FLY_TOTAL + br / n).toLocaleString('ru'), C.brain], ['Букв знают (ср.)', (lt / n).toFixed(1), C.letters], ['Единство языка', Math.round(langAgreement() * 100) + '%', C.lang],
     ['Родилось', G.births, C.birth], ['Умерло', G.deaths, C.death], ['Объектов', world.objects.length, C.neutral],
@@ -486,10 +487,33 @@ function countBlocks(id) {
   if (simTime - blockCountT > 10) { blockCountCache = {}; for (let i = 0; i < world.b.length; i++) { const b = world.b[i]; if (b === B_TABLE || b === B_FURNACE) blockCountCache[b] = (blockCountCache[b] || 0) + 1; } blockCountT = simTime; }
   return blockCountCache[id] || 0;
 }
+// ---------- вкладка «Племена» ----------
+function tribesPanel() {
+  const byT = {}; for (const r of robots) (byT[r.tribe] = byT[r.tribe] || []).push(r);
+  const alive = Object.values(G.tribes || {}).filter(t => t.alive);
+  $('tribeTable').innerHTML = '<tr><th>племя</th><th>жителей</th><th>IQ</th><th>земли</th><th>слова</th></tr>' + alive.map(t => {
+    const rs = byT[t.id] || [], v = vocabOf(rs), words = Object.entries(v).slice(0, 3).map(([k, w]) => `<span class="ing">${CMAP[k].ru}: ${esc(w)}</span>`).join('') || '<span class="muted">языка ещё нет</span>';
+    const q = rs.length ? Math.round(rs.reduce((s, r) => s + iq(r), 0) / rs.length) : 0;
+    return `<tr><td><span class="sw" style="background:${tribeCss(t.id)}"></span> <b style="color:${tribeCss(t.id)}">${esc(t.name)}</b><br><span class="muted">с ${fmtTime(t.born).replace('День ', 'д')}${t.parent && G.tribes[t.parent] ? ', от ' + esc(G.tribes[t.parent].name) : ''}</span></td><td>${rs.length}</td><td>${q}</td><td>${territorySize(t.id)}</td><td>${words}</td></tr>`;
+  }).join('');
+  if (alive.length < 2) $('relMatrix').innerHTML = '<div class="muted">Пока одно племя — дипломатии нет. Новое появится, когда группа уйдёт далеко и её язык разойдётся.</div>';
+  else $('relMatrix').innerHTML = '<table><tr><th></th>' + alive.map(t => `<th style="color:${tribeCss(t.id)}">${esc(t.name)}</th>`).join('') + '</tr>' + alive.map(a => `<tr><td style="color:${tribeCss(a.id)}">${esc(a.name)}</td>` + alive.map(b => {
+    if (a.id === b.id) return '<td class="muted">—</td>';
+    const v = getRel(a.id, b.id), st = relStatus(v);
+    return `<td style="color:${st[2]}">${st[1]}<br><span class="muted">${v >= 0 ? '+' : ''}${v.toFixed(2)}</span></td>`;
+  }).join('') + '</tr>').join('') + '</table>';
+  $('diploLog').innerHTML = (G.diplo || []).slice(0, 30).map(e => `<div><time>${fmtTime(e.t).replace('День ', 'д')}</time>${esc(e.text)}</div>`).join('') || '<div class="muted">Пока тихо.</div>';
+  if (!$('mini').hidden) drawMinimap($('mini'));
+}
+$('bMini').onclick = () => { const m = $('mini'); m.hidden = !m.hidden; $('bMini').textContent = m.hidden ? 'Открыть миникарту' : 'Скрыть миникарту'; if (!m.hidden) drawMinimap(m); };
+$('mini').addEventListener('click', e => {
+  const m = $('mini'), b = m.getBoundingClientRect();
+  goal.tx = (e.clientX - b.left) / b.width * MAPX - HX; goal.tz = (e.clientY - b.top) / b.height * MAPZ - HZ; cam.follow = false;
+});
 function updatePanels() {
   if (selected && selected.dead) { pushEvent(`${selected.name} умер (${selected.cause}), прожив ${Math.round(selected.age)} с`); selected = null; cam.follow = false; }
   $('clock').textContent = fmtTime(simTime) + (isNight() ? ' · ночь' : ' · день') + ' · ' + SEASONS[season()];
-  if (tab === 'world') worldPanel(); else if (tab === 'robot') robotPanel(); else if (tab === 'craft') craftPanel(); else langPanel();
+  if (tab === 'world') worldPanel(); else if (tab === 'robot') robotPanel(); else if (tab === 'craft') craftPanel(); else if (tab === 'tribes') tribesPanel(); else langPanel();
 }
 
 // ---------- главный цикл ----------

@@ -97,7 +97,7 @@
   </div>
   <div id="split"><button id="collapse" title="Свернуть панель">›</button></div>
   <aside>
-    <nav class="tabs"><button data-tab="world" class="on">Мир</button><button data-tab="robot">Робот</button><button data-tab="lang">Язык</button><button data-tab="craft">Крафт</button></nav>
+    <nav class="tabs"><button data-tab="world" class="on">Мир</button><button data-tab="robot">Робот</button><button data-tab="lang">Язык</button><button data-tab="craft">Крафт</button><button data-tab="tribes">Племена</button></nav>
 
     <section class="tab" id="tab-world">
       <h1>Роботы на карте Minecraft</h1>
@@ -137,6 +137,19 @@
       <h2>Все рецепты</h2>
       <table id="craftTable"></table>
     </section>
+    <section class="tab" id="tab-tribes" hidden>
+      <h1>Племена</h1>
+      <div class="muted">Племя рождается само: группа уходит в дальний лес, живёт отдельно, и если её язык заметно разошёлся (или ушли очень далеко), она становится новым племенем со своим названием и цветом. Отношения меняются от встреч, обучения, нападений, споров за землю и похожести языка.</div>
+      <h2>Миникарта</h2>
+      <div class="btns"><button id="bMini">Открыть миникарту</button></div>
+      <canvas class="chart" id="mini" width="596" height="412" hidden style="margin-top:6px;cursor:crosshair"></canvas>
+      <h2>Племена мира</h2>
+      <table id="tribeTable"></table>
+      <h2>Дипломатия</h2>
+      <div id="relMatrix"></div>
+      <h2>Летопись</h2>
+      <div class="log" id="diploLog"></div>
+    </section>
     <section class="tab" id="tab-lang" hidden>
       <h2>Словарь племени</h2>
       <div class="muted" style="margin-bottom:6px">Слова придумывают сами роботы из выученных букв. Когда двое называют одно и то же одинаково — слово закрепляется.</div>
@@ -148,15 +161,16 @@
     </section>
   </aside>
 </div>
-<script src="js/mcmap.js?v=6"></script>
-<script src="js/engine.js?v=6"></script>
-<script src="js/world.js?v=6"></script>
-<script src="js/lang.js?v=6"></script>
-<script src="js/flybrain.js?v=6"></script>
-<script src="js/sim.js?v=6"></script>
-<script src="js/craft.js?v=6"></script>
-<script src="js/render.js?v=6"></script>
-<script src="js/save.js?v=6"></script>
-<script src="js/ui.js?v=6"></script>
+<script src="js/mcmap.js?v=7"></script>
+<script src="js/engine.js?v=7"></script>
+<script src="js/world.js?v=7"></script>
+<script src="js/lang.js?v=7"></script>
+<script src="js/flybrain.js?v=7"></script>
+<script src="js/sim.js?v=16"></script>
+<script src="js/tribes.js?v=16"></script>
+<script src="js/craft.js?v=16"></script>
+<script src="js/render.js?v=7"></script>
+<script src="js/save.js?v=15"></script>
+<script src="js/ui.js?v=7"></script>
 </body>
 </html>

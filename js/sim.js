@@ -16,7 +16,8 @@ const IN_NAMES = [...DRIVES.map(d => d[1]), 'несёт предмет', 'ноч
   'яблоко: sin', 'яблоко: cos', 'яблоко: близость', 'вода: sin', 'вода: cos', 'вода: близость', 'робот: sin', 'робот: cos', 'робот: близость',
   'буква: sin', 'буква: cos', 'буква: близость', 'дерево: sin', 'дерево: cos', 'дерево: близость', 'стена: sin', 'стена: cos', 'стена: близость',
   'блок: sin', 'блок: cos', 'блок: близость', 'зов «еда»', 'можно копать', 'можно поставить', 'шум',
-  'зомби: sin', 'зомби: cos', 'зомби: близость', 'верстак рядом', 'печь рядом', 'еда в сумке', 'блоки в сумке', 'есть меч'];
+  'зомби: sin', 'зомби: cos', 'зомби: близость', 'верстак рядом', 'печь рядом', 'еда в сумке', 'блоки в сумке', 'есть меч',
+  'в глубокой воде', 'трава: sin', 'трава: cos', 'трава: близость', 'враг рядом', 'семена в сумке'];
 const NI = IN_NAMES.length;
 const SET = { mut: 0.5, food: 1, maxPop: 70, lamarck: true };
 const PAL_SHELL = [[0.93, 0.93, 0.9], [0.6, 0.84, 0.92], [0.76, 0.68, 0.92], [0.42, 0.44, 0.48], [0.95, 0.88, 0.74], [0.97, 0.74, 0.8]];
@@ -24,7 +25,7 @@ const PAL_ACC = [[0.98, 0.42, 0.1], [0.98, 0.78, 0.12], [0.52, 0.32, 0.78], [0.8
 const PAL_EYE = [[1, 0.74, 0.1], [0.52, 0.36, 0.86], [0.3, 0.8, 0.95], [0.95, 0.32, 0.3]];
 const GENE_RANGE = { size: [0.75, 1.35], leg: [0.8, 1.25], head: [0.8, 1.3], strength: [0, 1], speed: [0, 1], stamina: [0, 1], brain: [6, 64], learn: [0, 1], instinct: [0, 1], curiosity: [0, 1], social: [0, 1], temper: [0, 1], nerves: [0, 1], immunity: [0, 1], fertility: [0, 1], lifespan: [0, 1], asym: [0, 1] };
 const GENE_NAMES = { size: 'Размер тела', leg: 'Длина ног', head: 'Голова / камера', strength: 'Сила', speed: 'Скорость', stamina: 'Выносливость', brain: 'Нейронов (врождённо)', learn: 'Обучаемость', instinct: 'Сила инстинктов', curiosity: 'Любопытство', social: 'Общительность', temper: 'Вспыльчивость', nerves: 'Тревожность', immunity: 'Иммунитет', fertility: 'Плодовитость', lifespan: 'Долголетие', asym: 'Асимметрия (уродство)' };
-const SKILLS = [['walk', 'Ходьба'], ['carry', 'Носить вещи'], ['dig', 'Копать'], ['build', 'Ставить блоки'], ['craft', 'Крафт'], ['fight', 'Драка'], ['jump', 'Прыжки']];
+const SKILLS = [['walk', 'Ходьба'], ['carry', 'Носить вещи'], ['dig', 'Копать'], ['build', 'Ставить блоки'], ['craft', 'Крафт'], ['fight', 'Драка'], ['jump', 'Прыжки'], ['swim', 'Плавание'], ['farm', 'Земледелие']];
 
 let world, robots, births, simTime, nextId, events, convLog, history, G, objGrid, robGrid, treeGrid, lastSample;
 
@@ -135,7 +136,7 @@ function makeRobot(genes, brain, x, z, gen = 0, parents = null) {
     energy: 75, water: 80, health: 100, mental: 80, age: 0, gen, parents,
     d: new Float32Array(ND), dPrev: new Float32Array(ND),
     chem: { adrenaline: 0, reward: 0, punish: 0, endorphin: 0, antigen: 0, antibody: 0.1 },
-    skill: { walk: 0.15, carry: 0, dig: 0, build: 0, craft: 0, fight: 0, jump: 0 },
+    skill: { walk: 0.15, carry: 0, dig: 0, build: 0, craft: 0, fight: 0, jump: 0, swim: 0, farm: 0 }, tribe: 1, goal: null, lastNew: 0,
     inv: {}, tools: { pick: 0, axe: 0, shovel: 0, sword: 0 }, rp: {}, known: {}, fly: newFly(Math.random() * 4294967295), mbOut: new Float32Array(NA),
     action: 8, actT: 0, rew: 0, base: 0, prox: { food: 0, water: 0, tree: 0 }, near: {},
     carry: null, mateWish: 0, mateCool: 20, heard: { t: 0, x: 0, z: 0 }, fallT: 0, cause: 'голод',
@@ -175,7 +176,7 @@ function initSim() {
   world = new World(); treeGrid = null;
   robots = []; births = []; simTime = DAY * 0.3; nextId = 1; events = []; convLog = [];
   history = { pop: [], iq: [], letters: [], lang: [], brain: [], gen: [], happy: [], skill: [] };
-  G = { births: 0, deaths: 0, causes: { голод: 0, жажда: 0, старость: 0, болезнь: 0, зомби: 0, холод: 0 }, maxGen: 0, bestIQ: 0, bestName: '', letterFirst: new Array(26).fill(false), firstWord: false, alphabet: false, mined: 0, built: 0, firsts: {} };
+  G = { births: 0, deaths: 0, causes: { голод: 0, жажда: 0, старость: 0, болезнь: 0, зомби: 0, холод: 0, утонул: 0 }, maxGen: 0, bestIQ: 0, bestName: '', letterFirst: new Array(26).fill(false), firstWord: false, alphabet: false, mined: 0, built: 0, firsts: {} };
   lastSample = simTime;
   // племя начинает в самой лесистой части карты
   let bc = world.trees[0] || { x: 0, z: 0 }, bn = -1;
@@ -184,10 +185,12 @@ function initSim() {
     let x = bc.x, z = bc.z;
     for (let t = 0; t < 60; t++) { x = inX(bc.x + rnd(-14, 14)); z = inZ(bc.z + rnd(-14, 14)); if (!world.isWater(x, z) && world.topBlock(x, z) !== B_LOG) break; }
     const r = makeAncestor(x, z);
-    r.mem = { water: nearestWaterTo(x, z), tree: { x: bc.x, z: bc.z } };
+    r.mem = { water: nearestWaterTo(x, z), tree: { x: bc.x, z: bc.z } }; r.home = { x: bc.x, z: bc.z }; // стоянка племени
     robots.push(r);
   }
-  pushEvent('Карта Minecraft: трава, деревья с яблоками, вода. 26 роботов начинают жизнь.');
+  G.tribes = {}; G.rel = {}; G.terr = {}; G.diplo = []; G.tribeSeq = 0;
+  const t1 = newTribe(robots);
+  pushEvent(`Карта Minecraft: трава, деревья с яблоками, вода. 26 роботов начинают жизнь — первое племя ${G.tribes[t1].name}.`);
 }
 function pushEvent(text) { events.unshift({ t: simTime, text }); if (events.length > 100) events.pop(); }
 function first(key, text) { if (!G.firsts[key]) { G.firsts[key] = true; pushEvent(text); } }
@@ -206,6 +209,7 @@ function step() {
   if (!treeGrid) treeGrid = makeGrid(world.trees);
   for (const r of robots) updateRobot(r);
   zombieTick(DT);
+  tribeTick();
   let removed = false;
   for (const r of robots) if (r.dead) {
     removed = true; G.deaths++; G.causes[r.cause] = (G.causes[r.cause] || 0) + 1;
@@ -231,7 +235,14 @@ function body(r) {
   if (close2 >= 2) r.shelter = Math.min(1, r.shelter + 0.2); // прижались друг к другу
   r.sheltered = r.shelter >= 0.7;
   if (r.shelter >= 0.7 && simTime - (r.homeCheck || 0) > 2) { r.homeCheck = simTime; checkHome(r, walls, roof); }
-  const inWater = world.depth(r.x, r.z) > 0.3;
+  const inWater = world.depth(r.x, r.z) > 0.3, deep = world.depth(r.x, r.z) > 0.8;
+  if (deep) {
+    // плавание: не умеет — тонет, страшно и больно; умеет — радость и удовольствие
+    practice(r, 'swim', 0.035);
+    const sw = r.skill.swim || 0;
+    if (sw < 0.35) { r.health -= (0.35 - sw) * 7 * DT; d[8] = Math.min(1, d[8] + 0.12 * DT); d[2] = Math.min(1, d[2] + 0.05 * DT); if (r.health < 30) r.cause = 'утонул'; }
+    else { d[9] = Math.max(0, d[9] - 0.04 * DT); c.endorphin += 0.08 * DT; d[8] = Math.max(0, d[8] - 0.02 * DT); }
+  }
   // обмен веществ: тело, мозг, сила, движение
   const rest = resting ? 0.45 : 1;
   const se = g.size * (0.55 + 0.45 * growth(r)); // малыши тратят меньше
@@ -247,7 +258,7 @@ function body(r) {
   // холод: ночью без укрытия и в воде; днём, в укрытии и рядом с другими — теплее
   const winter = season() === 3 ? 2 : 1;
   const chill = night ? 0.016 * winter * (1 - r.shelter) : (winter > 1 ? 0.005 * (1 - r.shelter) : 0);
-  d[5] += (chill > 0.001 ? chill : -0.02) * DT + (r.shelter >= 0.7 ? -0.015 * DT : 0) + (inWater ? 0.025 * DT : 0);
+  d[5] += (chill > 0.001 ? chill : -0.02) * DT + (r.shelter >= 0.7 ? -0.015 * DT : 0) + (inWater ? (night || season() === 3 ? 0.025 : 0.004) * DT : 0);
   // одиночество и теснота
   d[6] += (close6 === 0 ? 0.005 * (0.3 + g.social) : -0.012) * DT;
   d[7] += (close3 > 3 ? 0.012 * (close3 - 3) : -0.02) * DT; // толпа раздражает
@@ -256,7 +267,7 @@ function body(r) {
   d[10] = d[10] * Math.exp(-DT / 10);
   const zb = nearestZombie(r, 10); if (zb) d[8] += (0.08 * (0.5 + g.nerves) * (1 - Math.hypot(zb.x - r.x, zb.z - r.z) / 10)) * DT;
   // скука копится, если ничего нового
-  d[9] += 0.006 * (0.3 + g.curiosity) * DT;
+  d[9] += 0.006 * (0.3 + g.curiosity) * DT + (simTime - (r.lastNew || 0) > 40 ? 0.008 * g.curiosity * DT : 0); // засиделся на одном месте — тянет исследовать
   // влечение — у взрослых и сытых
   d[11] += (isAdult(r) && r.energy > 45 && r.mateCool <= 0 ? 0.012 * (0.4 + g.fertility) : -0.004) * DT;
   for (let i = 0; i < ND; i++) d[i] = clamp(d[i], 0, 1);
@@ -318,7 +329,7 @@ function updateRobot(r) {
       if ((r.carry || bagCount(r)) && Math.random() < DT * (1 - r.skill.carry) * 0.15) { dropCarry(r); } // уронил
       // новые места снимают скуку
       const cell = (Math.floor(r.x / 6) + 100) * 1000 + Math.floor(r.z / 6) + 100;
-      if (!r.seen.has(cell)) { r.seen.add(cell); r.d[9] = Math.max(0, r.d[9] - 0.03); }
+      if (!r.seen.has(cell)) { r.seen.add(cell); r.d[9] = Math.max(0, r.d[9] - 0.05); r.lastNew = simTime; }
     } else unstick(r);
   }
   near(robGrid, r.x, r.z, 1.5, o => {
@@ -347,7 +358,7 @@ function standable(r, x, z) {
 function stepBody(r, nx, nz) {
   nx = inX(nx); nz = inZ(nz);
   const dep = world.depth(nx, nz), swimming = world.depth(r.x, r.z) > 0.8;
-  let f = dep > 0.8 ? (swimming ? 0.4 : 0) : dep > 0 ? 0.45 : 1;
+  let f = dep > 0.8 ? 0.2 + 0.6 * (r.skill.swim || 0) : dep > 0 ? 0.45 : 1; // в глубину может зайти любой, но плыть — уметь
   if (!f || !standable(r, nx, nz)) return 0;
   if (world.height(nx, nz) - r.y > 0.5) f *= 0.5;
   r.x += (nx - r.x) * f; r.z += (nz - r.z) * f;
@@ -409,7 +420,7 @@ function hasRoof(r) {
 function discover(r, key) {
   if (r.known['act_' + key]) return;
   r.known['act_' + key] = true; r.d[9] = Math.max(0, r.d[9] - 0.25); r.chem.endorphin += 0.4;
-  lifeEvent(r, 'Впервые получилось: ' + { jump: 'прыгнуть на уступ', chop: 'добыть бревно', dig: 'выкопать блок', build: 'поставить блок', kill: 'победить зомби' }[key]);
+  lifeEvent(r, 'Впервые получилось: ' + { jump: 'прыгнуть на уступ', chop: 'добыть бревно', dig: 'выкопать блок', build: 'поставить блок', kill: 'победить зомби', plant: 'посадить арбуз' }[key]);
 }
 // подражание: кто рядом видел удачу — учится сам (культура передаётся без генов)
 function inspire(r, kind, what) {
@@ -441,6 +452,72 @@ function checkHome(r, walls, roof) {
     pushEvent(`${r.name} (пок. ${r.gen}) первым укрылся в ${type === 'дом' ? 'построенном доме' : 'выкопанной землянке'} — день ${G[fk].day}`);
     lifeEvent(r, type === 'дом' ? 'Первым в племени укрылся в построенном доме' : 'Первым в племени укрылся в землянке');
   }
+}
+// ---------- исследование: любопытные уходят в дальние леса, других зовут с собой ----------
+function steerTo(L, r, x, z, kb) {
+  const a = normA(Math.atan2(x - r.x, z - r.z) - r.yaw);
+  L[1] += kb * Math.max(0, Math.sin(a)) * 1.6; L[2] += kb * Math.max(0, -Math.sin(a)) * 1.6; L[0] += kb * (Math.cos(a) * 0.9 + 0.2);
+}
+function exploreGoal(r) {
+  const g = r.genes, I = r.inp;
+  if (Math.max(I[0], I[1]) > 0.45 || ['Малыш', 'Ребёнок'].includes(stageOf(r))) return null;
+  if (r.goal && simTime < r.goal.until) {
+    if ((r.goal.x - r.x) ** 2 + (r.goal.z - r.z) ** 2 < 16) {
+      r.mem.tree = { x: r.goal.x, z: r.goal.z }; const w = nearestWaterTo(r.x, r.z); if (w && Math.hypot(w.x - r.x, w.z - r.z) < 35) r.mem.water = w; // новый дом: здесь и вода рядом
+      lifeEvent(r, 'Дошёл до нового леса'); r.home = { x: r.goal.x, z: r.goal.z }; r.goal = null; r.settled = simTime + 700; return null;
+    }
+    return r.goal;
+  }
+  r.goal = null;
+  if (simTime < (r.settled || 0)) return null; // осел на новом месте — живёт тут
+  // переселение — когда тесно или вокруг кончилась еда, и только у любопытных
+  const crowded = I[7] > 0.25, scarce = I[0] > 0.3 && !r.near.food && !(r.near.tree && r.near.tree.apples > 0);
+  if (!crowded && !scarce) return null;
+  if (Math.random() > 0.003 + 0.02 * g.curiosity) return null;
+  // дальний лес, по возможности — ничей
+  let best = null, bs = -1;
+  for (let i = 0; i < 12; i++) {
+    const t = pick(world.trees), d = Math.hypot(t.x - r.x, t.z - r.z);
+    if (d < 25 || d > 90) continue;
+    const owner = territoryOwner(Math.floor((t.x + HX) / TERR) + ',' + Math.floor((t.z + HZ) / TERR));
+    const sc = (owner && owner !== r.tribe ? 0.3 : 1) * (1 + t.apples * 0.2) * (0.5 + Math.random());
+    if (sc > bs) { bs = sc; best = t; }
+  }
+  if (!best) return null;
+  r.goal = { x: best.x, z: best.z, until: simTime + 320 };
+  lifeEvent(r, crowded ? 'Решил уйти: слишком тесно' : 'Решил уйти искать еду');
+  // переселенцы: любопытные соседи по племени идут следом
+  near(robGrid, r.x, r.z, 9, o => {
+    if (o === r || o.tribe !== r.tribe || o.goal || o.genes.curiosity < 0.35 || Math.max(o.d[0], o.d[1]) > 0.45 || ['Малыш', 'Ребёнок'].includes(stageOf(o))) return;
+    if (simTime >= (o.settled || 0) && Math.random() < 0.5 + o.genes.social * 0.4) o.goal = { x: best.x + rnd(-3, 3), z: best.z + rnd(-3, 3), until: simTime + 340, follow: r.name };
+  });
+  return r.goal;
+}
+// ---------- трава, семена, арбузы ----------
+const MELON_RIPE = 100;
+function cutGrass(r, o) {
+  o.dead = true; world.removed = true;
+  bagAdd(r, 'seed'); practice(r, 'farm', 1); r.d[9] = Math.max(0, r.d[9] - 0.02);
+  first('grass', `${r.name} первым сорвал траву и нашёл семечко арбуза`);
+}
+function nearWaterWithin(x, z, d) { for (let k = 0; k < 8; k++) { const a = k / 8 * 6.283; for (let s = 1; s <= d; s++) if (world.isWater(x + Math.sin(a) * s, z + Math.cos(a) * s)) return true; } return false; }
+function farmSpot(r) {
+  const [x, z] = front(r, 0.9);
+  if (world.isWater(x, z)) return null;
+  const b = world.topBlock(x, z);
+  if (b !== B_GRASS && b !== B_DIRT) return null;
+  if (!nearWaterWithin(x, z, 5)) return null; // арбузам нужна вода рядом
+  if (nearestIn({ x, z }, 0.9, o => o.t === 'melon')) return null;
+  return [x, z];
+}
+function plant(r) {
+  const sp = farmSpot(r); if (!sp) return;
+  practice(r, 'farm', 3);
+  if (Math.random() > 0.3 + 0.7 * (r.skill.farm || 0)) { annoy(r, 0.02); return; } // семечко не прижилось
+  bagTake(r, 'seed'); world.add({ t: 'melon', x: inX(sp[0]), z: inZ(sp[1]), g: 0, by: r.tribe });
+  r.st.planted = (r.st.planted || 0) + 1; r.d[9] = Math.max(0, r.d[9] - 0.08);
+  discover(r, 'plant'); inspire(r, 'skill', 'farm');
+  first('plant', `${r.name} первым посадил арбуз у воды`);
 }
 function learnFactor(r) { return (0.25 + r.genes.learn) * (0.35 + r.brain.H / 50) * (0.5 + r.mental / 200); }
 function practice(r, k, amt) {
@@ -507,6 +584,14 @@ function sense(r) {
   I[40] = Math.random() * 2 - 1;
   const zb = nearestZombie(r, R * 1.3);
   put(zb, 41, zb ? (zb.x - r.x) ** 2 + (zb.z - r.z) ** 2 : 0, R * 1.3);
+  let grass = null, gd = R * R, enemy = null, ed = R * R;
+  near(objGrid, r.x, r.z, R, o => { if (o.t !== 'grass' || o.dead) return; const q = (o.x - r.x) ** 2 + (o.z - r.z) ** 2; if (q < gd) { gd = q; grass = o; } });
+  near(robGrid, r.x, r.z, R, o => { if (o === r || !isEnemy(r, o)) return; const q = (o.x - r.x) ** 2 + (o.z - r.z) ** 2; if (q < ed) { ed = q; enemy = o; } });
+  I[49] = world.depth(r.x, r.z) > 0.8 ? 1 : 0;
+  put(grass, 50, gd);
+  I[53] = enemy ? Math.max(0.01, 1 - Math.sqrt(ed) / R) : 0; I[54] = r.inv.seed ? 1 : 0;
+  best.grass = grass; best.enemy = enemy;
+  if (I[49]) { best.land = null; for (let k = 0; k < 12 && !best.land; k++) for (let s2 = 1.5; s2 <= 12; s2 += 1.5) { const a2 = k / 12 * 6.283, lx = r.x + Math.sin(a2) * s2, lz = r.z + Math.cos(a2) * s2; if (!world.isWater(lx, lz) && world.height(lx, lz) - r.y < 1.6) { best.land = { x: lx, z: lz }; break; } } }
   I[44] = stationNear(r, B_TABLE) ? 1 : 0; I[45] = stationNear(r, B_FURNACE) ? 1 : 0;
   I[46] = (r.inv.apple || r.inv.cooked || r.inv.meat) ? 1 : 0; I[47] = PLACEABLE.some(p => r.inv[p[0]]) ? 1 : 0; I[48] = r.tools.sword ? 1 : 0;
   // сетчатка мухи: 24 направления × 8 признаков
@@ -527,6 +612,7 @@ function sense(r) {
   av[5] = r.carry || nearestIn(r, reach(r), o => CARRY.has(o.t) || o.t === 'meat') || (I[47] && placeSpot(r)) ? 1 : 0;
   av[7] = canMate(r) && nearestRobot(r, 2.2 * g.size) ? 1 : 0;
   av[9] = nearestZombie(r, reach(r) + 0.6) || nearestRobot(r, reach(r)) ? 1 : 0;
+  if (r.inv.seed && farmSpot(r)) av[5] = 1;
   av[10] = RECIPES.some(rc => canCraftQuick(r, rc, I[44], I[45])) ? 1 : 0;
   av[11] = jumpTarget(r) ? 1 : 0;
   // мозг мухи «тикает» ~2 раза в секунду (как реальные нейронные ритмы), решения используют последний результат
@@ -575,6 +661,7 @@ function instinct(r) {
     [I[37] > 0 ? hunger * 0.8 : 0, -2, 0, 2, true],                                // услышал зов «еда»
     [Math.max(I[6] * 0.7, isAdult(r) ? I[11] * 0.8 : 0), 22, I[11] > I[6] ? 7 : 3, close, false],
     [I[9] * g.curiosity * 0.6 * Math.min(1 - hunger, 1 - thirst), 25, 0, 2, false], // скучно — посмотреть на новое
+    [I[49] ? 0 : I[9] * (0.3 + (r.skill.swim || 0)) * 0.8 * (1 - I[5]) * Math.min(1 - hunger, 1 - thirst) * (I[13] ? 0.2 : 1), 19, 0, 2, false, 'swim'], // плавать — приятно
   ];
   let best = null, bu = 0.05;
   for (const n of needs) if (n[0] > bu && (n[1] < 0 ? r.heard.t > 0 : I[n[1] + 2] > 0)) { bu = n[0]; best = n; }
@@ -588,14 +675,30 @@ function instinct(r) {
   };
   if (!I[21]) memo(r.mem.water, thirst * 1.3, 'water');
   if (!I[18] && !I[30]) memo(r.mem.tree, hunger * 0.8, 'tree');
-  if (best && best[1] >= 0) { const o = { 16: r.near.food, 19: r.near.water, 28: r.near.tree, 22: r.near.robot, 25: r.near.letter }[best[1]], lb = { 16: 'к еде', 19: 'к воде', 28: 'к дереву с яблоками', 22: best[2] === 7 ? 'к партнёру' : 'к сородичу', 25: 'посмотреть на букву' }[best[1]]; if (o) r.intent = { label: lb, x: o.x, z: o.z }; }
+  if (best && best[1] >= 0) { const o = { 16: r.near.food, 19: r.near.water, 28: r.near.tree, 22: r.near.robot, 25: r.near.letter }[best[1]], lb = { 16: 'к еде', 19: 'к воде', 28: 'к дереву с яблоками', 22: best[2] === 7 ? 'к партнёру' : 'к сородичу', 25: 'посмотреть на букву' }[best[1]]; if (o) r.intent = { label: best[5] === 'swim' ? 'поплавать' : lb, x: o.x, z: o.z }; }
   if (best && best[1] === -2) { r.intent = { label: 'на зов «еда»', x: r.heard.x, z: r.heard.z }; const a = Math.atan2(r.heard.x - r.x, r.heard.z - r.z) - r.yaw; best = [best[0], -1, 0, 2, true]; ms = Math.sin(a); mc = Math.cos(a); }
+  // поход в новый лес перебивают только голод, жажда и опасность
+  let exploring = false;
+  const gl = exploreGoal(r);
+  if (gl && (!best || !best[4] || bu < 0.55)) { // в пути отвлекают только сильный голод/жажда, а не пара и не мелочи
+    exploring = true; best = null; steerTo(L, r, gl.x, gl.z, k * 1.4);
+    r.intent = { label: gl.follow ? 'идёт за ' + gl.follow + ' в новые места' : 'исследует новые места', x: gl.x, z: gl.z };
+  }
   if (best) {
     const mem = best[1] < 0, s = mem ? ms : I[best[1]], c = mem ? mc : I[best[1] + 1], p = mem ? 0 : I[best[1] + 2];
     const kb = best[4] ? kk : k;
     L[1] += kb * Math.max(0, s) * 1.6; L[2] += kb * Math.max(0, -s) * 1.6; L[0] += kb * (c * 0.9 + 0.2);
     if (p > best[3] && best[2]) L[best[2]] += kb * 2.2;
-  } else L[0] += kk * 0.6;
+  } else if (!exploring) L[0] += kk * 0.6;
+  // тонет — к берегу
+  if (I[49] && r.near.land && (I[8] > 0.3 || r.health < 70 || I[5] > 0.5 || (r.skill.swim || 0) < 0.35)) { steerTo(L, r, r.near.land.x, r.near.land.z, kk * 1.5); r.intent = { label: 'выбирается на берег', x: r.near.land.x, z: r.near.land.z }; }
+  // враг рядом: страшно — бежать, злость и война — драться (драться ещё надо научиться)
+  const en = r.near.enemy;
+  if (en) {
+    const war = getRel(r.tribe, en.tribe) <= -0.5;
+    if (I[8] > 0.4) { const a = normA(Math.atan2(en.x - r.x, en.z - r.z) - r.yaw); L[Math.sin(a) > 0 ? 2 : 1] += k * I[8] * 2; L[0] += k * I[8]; }
+    else if (war && I[10] + g.temper * 0.5 > 0.5) { steerTo(L, r, en.x, en.z, k); if (I[53] > 1 - (reach(r) + 0.3) / (r.near.R || 9)) L[9] += k * 1.5; r.intent = { label: 'нападает на чужака из ' + (tribeOf(en.tribe) || {}).name, x: en.x, z: en.z }; }
+  }
   if (I[33] > 0.85 && I[32] > 0.6) { L[I[31] > 0 ? 2 : 1] += k; L[0] -= k * 0.5; }
   // врождённое бегство от зомби (драться — надо научиться)
   if (I[43] > 0.2 && I[8] > 0.2) { const f = k * I[8] * 2.5; L[I[41] > 0 ? 2 : 1] += f; L[0] += f * (I[42] < 0 ? 1 : -0.5); }
@@ -664,7 +767,7 @@ function doAction(r, a) {
   else if (a === 11) jump(r);
 }
 const reach = r => 1.0 + 0.45 * r.genes.size;
-const isFood = o => o.t === 'fruit' || o.t === 'meat';
+const isFood = o => o.t === 'fruit' || o.t === 'meat' || (o.t === 'melon' && o.g >= MELON_RIPE);
 const front = (r, s) => [r.x + Math.sin(r.yaw) * s, r.z + Math.cos(r.yaw) * s];
 const annoy = (r, x = 0.06) => { r.d[10] = Math.min(1, r.d[10] + x * (0.5 + r.genes.temper)); }; // неудача злит
 function digValue(r) {
@@ -709,6 +812,7 @@ function interact(r) {
     if (!lb || r.letters[o.ch] < r.letters[lb.ch]) lb = o;
   });
   if (lb && r.letters[lb.ch] < 1) return study(r, lb.ch);
+  const gr = nearestIn(r, R, o => o.t === 'grass'); if (gr) return cutGrass(r, gr);
   const m = nearestRobot(r, R + 0.4); if (m) return greet(r, m);
   o = nearestIn(r, R, o => o.t === 'block');
   if (o) { o.x = inX(o.x + Math.sin(r.yaw) * 0.8); o.z = inZ(o.z + Math.cos(r.yaw) * 0.8); r.d[9] = Math.max(0, r.d[9] - 0.02); return; }
@@ -716,6 +820,7 @@ function interact(r) {
 }
 function eat(r, o) {
   o.dead = true; world.removed = true;
+  if (o.t === 'melon') { r.energy = Math.min(100, r.energy + 40); r.water = Math.min(100, r.water + 20); bagAdd(r, 'seed', 1 + (Math.random() < 0.5 ? 1 : 0)); r.st.food++; r.st.melons = (r.st.melons || 0) + 1; first('melon', `${r.name} первым съел выращенный арбуз`); return; }
   r.energy = Math.min(100, r.energy + (o.t === 'meat' ? 25 : 30)); r.st.food++;
   if (o.t === 'meat' && Math.random() < 0.3 && r.chem.antigen <= 0) { r.chem.antigen = 0.6; r.st.ill++; lifeEvent(r, 'Отравился сырым мясом'); }
   first('eat', `${r.name} первым поел яблоко`);
@@ -747,9 +852,10 @@ function study(r, k) {
 }
 function greet(r, m) {
   r.d[6] = Math.max(0, r.d[6] - 0.25); m.d[6] = Math.max(0, m.d[6] - 0.15);
+  if (r.tribe !== m.tribe) changeRel(r.tribe, m.tribe, 0.008, 'дружеская встреча');
   let best = -1, gap = 0.15;
   for (let k = 0; k < 26; k++) { const dd = r.letters[k] - m.letters[k]; if (r.letters[k] >= 0.5 && dd > gap) { gap = dd; best = k; } }
-  if (best >= 0) { addLetter(m, best, 0.12 * learnFactor(m)); r.st.taught++; say(r, LETTERS[best] + '?', 'letter'); }
+  if (best >= 0) { addLetter(m, best, 0.12 * learnFactor(m)); r.st.taught++; if (r.tribe !== m.tribe) changeRel(r.tribe, m.tribe, 0.006, 'учили буквам'); say(r, LETTERS[best] + '?', 'letter'); }
   // зараза передаётся при контакте
   if (r.chem.antigen > 0.3 && m.chem.antigen <= 0 && Math.random() < 0.15 * (1.3 - m.genes.immunity)) { m.chem.antigen = 0.5; m.st.ill++; lifeEvent(m, 'Заразился от ' + r.name); }
 }
@@ -799,6 +905,7 @@ function carryToggle(r) {
     first('carry', `${r.name} первым подобрал предмет`);
     return;
   }
+  if (r.inv.seed && farmSpot(r)) return plant(r);
   const p = PLACEABLE.find(p => r.inv[p[0]]), spot = p && placeSpot(r);
   if (!spot) { annoy(r, 0.03); return; }
   practice(r, 'build', 3);
@@ -823,7 +930,7 @@ const attract = r => clamp(1 - r.genes.asym * 1.3 + (iq(r) - 100) / 150 + Math.m
 function tryMate(r) {
   r.mateWish = 3;
   const o = nearestRobot(r, 2.2 * r.genes.size);
-  if (!o || !canMate(r) || !canMate(o) || robots.length + births.length >= SET.maxPop) { annoy(r, 0.03); return; }
+  if (!o || !canMate(r) || !canMate(o) || !canMateTribes(r, o) || robots.length + births.length >= SET.maxPop) { annoy(r, 0.03); return; }
   const accept = o.mateWish > 0 || o.d[11] > 0.35 || Math.random() < (0.3 + o.genes.social * 0.7) * attract(r) * (0.5 + o.d[11]);
   if (!accept) { annoy(r, 0.1); return; }
   births.push(makeChild(r, o));
@@ -840,7 +947,7 @@ function makeChild(a, b) {
   }
   const brain = childBrain(SET.lamarck ? a.brain : a.innate, SET.lamarck ? b.brain : b.innate, genes.brain);
   const c = makeRobot(genes, brain, inX(a.x + rnd(-1, 1)), inZ(a.z + rnd(-1, 1)), Math.max(a.gen, b.gen) + 1, a === b ? [a.name] : [a.name, b.name]);
-  c.energy = 70; c.mem = { ...a.mem }; c.fly = childFly(a.fly, b.fly);
+  c.energy = 70; c.mem = { ...a.mem }; c.fly = childFly(a.fly, b.fly); c.tribe = a.tribe; c.settled = a.settled || 0; c.home = a.home ? { ...a.home } : { x: a.x, z: a.z };
   if (SET.lamarck) for (const k in a.rp) c.rp[k] = ((a.rp[k] || 0) + (b.rp[k] || 0)) / 2;
   if (SET.lamarck) {
     for (let k = 0; k < 26; k++) c.letters[k] = Math.max(a.letters[k], b.letters[k]) * 0.97;

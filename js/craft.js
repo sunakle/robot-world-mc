@@ -2,7 +2,7 @@
 // ================= Крафт как в Minecraft (начальные предметы), инвентарь, готовка, зомби =================
 const ITEMS = {
   log: 'Бревно', planks: 'Доски', stick: 'Палка', cobble: 'Булыжник', dirt: 'Земля', sand: 'Песок', gravel: 'Гравий', clay: 'Глина',
-  coal: 'Уголь', iron_ore: 'Железная руда', iron: 'Железный слиток', amethyst: 'Аметист', apple: 'Яблоко', meat: 'Сырое мясо', cooked: 'Жареное мясо',
+  coal: 'Уголь', iron_ore: 'Железная руда', iron: 'Железный слиток', amethyst: 'Аметист', apple: 'Яблоко', meat: 'Сырое мясо', cooked: 'Жареное мясо', seed: 'Семена арбуза',
 };
 // какой предмет даёт выкопанный блок
 const DROP = { [B_STONE]: 'cobble', [B_COBBLE]: 'cobble', [B_DIRT]: 'dirt', [B_GRASS]: 'dirt', [B_SAND]: 'sand', [B_GRAVEL]: 'gravel', [B_CLAY]: 'clay', [B_COAL]: 'coal', [B_IRON]: 'iron_ore', [B_AMETHYST]: 'amethyst', [B_PLANKS]: 'planks', [B_TABLE]: 'planks', [B_FURNACE]: 'cobble' };
@@ -140,6 +140,7 @@ function attack(r) {
   }
   const m = nearestRobot(r, reach(r));
   if (m) {
+    if (m.tribe !== r.tribe) changeRel(r.tribe, m.tribe, -0.05, 'нападение'); else m.d[10] = Math.min(1, m.d[10] + 0.1);
     m.health -= 2; m.d[2] = Math.min(1, m.d[2] + 0.1); m.d[10] = Math.min(1, m.d[10] + 0.15); m.d[8] = Math.min(1, m.d[8] + 0.1);
     r.d[10] = Math.max(0, r.d[10] - 0.2); r.st.hits = (r.st.hits || 0) + 1;
     return;
