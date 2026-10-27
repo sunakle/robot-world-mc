@@ -53,6 +53,26 @@ $('bNew').onclick = () => {
   goal.tx = mx / robots.length; goal.tz = mz / robots.length; goal.dist = 55;
   lastSample = simTime; simMark = simTime; updatePanels();
 };
+$('bSave').onclick = async () => {
+  const b = $('bSave'); b.disabled = true; b.textContent = 'Сохраняю…';
+  try { const n = await saveToFile(); saveStatus = `мир сохранён в файл (${(n / 1048576).toFixed(1)} МБ)`; } catch (e) { saveStatus = 'не удалось сохранить файл: ' + e.message; }
+  b.disabled = false; b.textContent = 'Сохранить в файл'; $('saveSt').textContent = 'Автосохранение: ' + saveStatus;
+};
+$('bLoad').onclick = () => $('fLoad').click();
+$('fLoad').onchange = async e => {
+  const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+  try {
+    const d = await loadFromFile(f);
+    if (under) toggleUnder();
+    buildWorldMeshes(); miniBase = null; selected = null; cam.follow = false; syncSliders();
+    let mx = 0, mz = 0; for (const r of robots) { mx += r.x; mz += r.z; }
+    if (robots.length) { goal.tx = mx / robots.length; goal.tz = mz / robots.length; goal.dist = 55; }
+    lastSample = simTime; simMark = simTime;
+    saveStatus = `загружен файл «${f.name}» (день ${Math.floor(d.simTime / DAY) + 1})`; pushEvent('Мир загружен из файла.');
+    autosave(); updatePanels();
+  } catch (err) { saveStatus = 'файл не прочитался: ' + err.message; }
+  $('saveSt').textContent = 'Автосохранение: ' + saveStatus;
+};
 function syncSliders() { $('sMut').value = SET.mut * 100; $('sFood').value = SET.food * 100; $('sPop').value = SET.maxPop; $('cLam').checked = SET.lamarck; for (const id of ['sMut', 'sFood', 'sPop']) $(id).oninput(); }
 $('sMut').oninput = () => { SET.mut = $('sMut').value / 100; $('vMut').textContent = $('sMut').value + '%'; };
 $('sFood').oninput = () => { SET.food = $('sFood').value / 100; $('vFood').textContent = '×' + SET.food.toFixed(1); };
@@ -107,25 +127,35 @@ addEventListener('keydown', e => {
   if (under && e.code === 'PageUp') { e.preventDefault(); moveCut(1); }
   if (under && e.code === 'PageDown') { e.preventDefault(); moveCut(-1); }
 });
-// ---------- режим наблюдателя под землёй: срез мира по высоте ----------
-let under = false, cutY = 0;
-function nearestNest(x, z) { let best = null, bd = 1e9; for (const c of G.camps || []) if (c.nest) { const d = Math.hypot(c.nest.x - x, c.nest.z - z); if (d < bd) { bd = d; best = c; } } return best; }
+// ---------- режим наблюдателя под землёй: вертикальный срез сбоку, как на схеме муравейника ----------
+let under = false, cutOff = 2, underY = 10;
+function nearestNest(x, z) { let best = null, bd = 1e9; for (const c of G.camps || []) if (c.nest && c.nest.rooms) { const d = Math.hypot(c.nest.x - x, c.nest.z - z); if (d < bd) { bd = d; best = c; } } return best; }
 function toggleUnder() {
   under = !under;
   $('bUnder').classList.toggle('on', under); $('bCutUp').hidden = $('bCutDn').hidden = $('underSt').hidden = !under;
   if (!under) { setCut(null); return; }
-  const c = selected ? campById(selected.camp) : null, nc = c && c.nest ? c : nearestNest(goal.tx, goal.tz);
-  if (nc) { cutY = nc.nest.h - 1; goal.tx = nc.nest.x - 1; goal.tz = nc.nest.z; goal.dist = 16; goal.pitch = 0.95; cam.follow = false; }
-  else cutY = Math.floor(world.height(goal.tx, goal.tz)) - 1;
+  const c = selected ? campById(selected.camp) : null, nc = c && c.nest && c.nest.rooms ? c : nearestNest(goal.tx, goal.tz);
+  cutOff = 2;
+  if (nc) {
+    const n = nc.nest, dv = n.ax ? [n.sg, 0] : [0, -n.sg]; // камера — с передней стороны «пластины» муравейника
+    const dug = n.cells.filter(cellDone); let mx = n.x, mz = n.z; for (const cl of dug) { mx += cl.i - HX + 0.5; mz += cl.k - HZ + 0.5; } mx /= dug.length + 1; mz /= dug.length + 1; // на уже вырытую часть
+    goal.tx = n.ax ? n.x : mx; goal.tz = n.ax ? mz : n.z;
+    goal.yaw = Math.atan2(-dv[0], -dv[1]); goal.pitch = 0.16; goal.dist = 26; underY = n.h - n.arch.depth / 2 - 1; cam.follow = false;
+  } else underY = world.height(goal.tx, goal.tz) - 4;
   applyCut();
 }
-function applyCut() { setCut({ y: cutY, i: Math.round(cam.tx + HX), k: Math.round(cam.tz + HZ) }); } // окно среза — там, куда смотрит камера
-function moveCut(d) { cutY = clamp(cutY + d, 2, MAPY); if (cam.follow) cam.follow = false; applyCut(); }
+// плоскость среза — поперёк того направления, откуда смотрит камера (ближайшая ось)
+function applyCut() {
+  const ex = Math.sin(cam.yaw), ez = Math.cos(cam.yaw), ax = Math.abs(ex) > Math.abs(ez) ? 0 : 1, sg = (ax ? ez : ex) > 0 ? 1 : -1;
+  const a0 = Math.floor((ax ? cam.tz + HZ : cam.tx + HX)), c = Math.floor(ax ? cam.tx + HX : cam.tz + HZ);
+  setCut({ ax, sg, p: a0 + sg * cutOff, c });
+}
+function moveCut(d) { cutOff = clamp(cutOff - d, 0, 14); applyCut(); } // PageUp — срез глубже (дальше от камеры)
 function underStatus() {
   if (!under) return;
   const c = nearestNest(cam.tx, cam.tz), n = c && c.nest;
-  const inside = n ? robots.filter(r => nestUnder(r) === n).length : 0;
-  $('underSt').textContent = `срез: ${cutY}` + (n ? ` · гнездо ${(tribeOf(c.tribe) || {}).name || ''}: вырыто ${n.dug} блоков, внутри ${inside}` : ' · гнёзд рядом нет');
+  const inside = n ? robots.filter(r => world.under(r.x, r.z, r.y) && Math.hypot(r.x - n.x, r.z - n.z) < 25).length : 0;
+  $('underSt').textContent = `срез: ${cutOff} от центра` + (n ? ` · муравейник ${(tribeOf(c.tribe) || {}).name || ''}: вырыто ${n.dug} блоков, камер ${n.rooms.filter(r => r.ready).length}/${n.rooms.length}, внутри ${inside}` : ' · муравейников рядом нет');
 }
 $('bUnder').onclick = toggleUnder; $('bCutUp').onclick = () => moveCut(1); $('bCutDn').onclick = () => moveCut(-1);
 addEventListener('keyup', e => { keys[e.code] = false; });
@@ -141,13 +171,13 @@ function camUpdate(rdt) {
   if (keys.KeyA || keys.ArrowLeft) panCam(-kp, 0); if (keys.KeyD || keys.ArrowRight) panCam(kp, 0);
   if (keys.KeyQ) goal.yaw += 1.6 * rdt * fast; if (keys.KeyE) goal.yaw -= 1.6 * rdt * fast;
   if (keys.KeyR) goal.dist = Math.max(2.5, goal.dist * (1 - 1.2 * rdt)); if (keys.KeyF) goal.dist = Math.min(160, goal.dist * (1 + 1.2 * rdt));
-  if (cam.follow && selected) { goal.tx = selected.x; goal.tz = selected.z; if (under) cutY = Math.floor(selected.y) + 2; } // следим под землёй — срез идёт за роботом
+  if (cam.follow && selected) { goal.tx = selected.x; goal.tz = selected.z; if (under) underY = selected.y + 0.5; } // следим под землёй — камера идёт за роботом по ходам
   // плавно догоняем цель
   const k = 1 - Math.exp(-rdt * 9);
   cam.tx += (goal.tx - cam.tx) * k; cam.tz += (goal.tz - cam.tz) * k;
   cam.yaw += (goal.yaw - cam.yaw) * k; cam.pitch += (goal.pitch - cam.pitch) * k; cam.dist += (goal.dist - cam.dist) * k;
   let gy = Math.max(world.height(cam.tx, cam.tz), world.waterLevel(cam.tx, cam.tz)) + 1;
-  if (under) { gy = Math.min(gy, cutY - 1); applyCut(); }
+  if (under) { gy = underY; applyCut(); }
   cam.ty += (gy - cam.ty) * Math.min(1, rdt * 5);
 }
 // луч из камеры через пиксель → точка на земле
@@ -197,7 +227,8 @@ function drawOverlay(vp, now) {
     const showTag = r === selected, bub = r.say && r.say.until > now;
     if (!showTag && !bub) continue;
     if (!showTag && (r.x - eye[0]) ** 2 + (r.z - eye[2]) ** 2 > 65 * 65) continue;
-    const p = project(vp, r.x, (r.anim.y ?? r.y) + 1.75 * r.genes.size * Math.max(1, r.genes.head * 0.9), r.z);
+    if (cutHides(r.x, r.z)) continue;
+    const p = project(vp, r.x, (r.anim.y ?? r.y) + 0.75 * r.genes.size * (r.role === 'queen' ? 1.5 : 1), r.z);
     if (!p || p[0] < -50 || p[1] < -20 || p[0] > canvas.clientWidth + 50 || p[1] > canvas.clientHeight + 40) continue;
     let el = pool[n]; if (!el) { el = pool[n] = document.createElement('div'); overlay.appendChild(el); }
     n++;
@@ -208,6 +239,16 @@ function drawOverlay(vp, now) {
       el.className = 'bub ' + (r.say.kind === 'letter' ? 'letter' : '');
       el.innerHTML = esc(r.say.text) + (showTag ? `<br><small style="margin:0">${esc(r.name)}</small>` : '');
     } else { el.className = 'tag'; el.textContent = r.name + ' — ' + (r.intent ? 'идёт ' + r.intent.label : ACTIONS[r.action].toLowerCase()); }
+  }
+  // кучки еды: сколько штук лежит
+  for (const o of world.objects) {
+    if (o.dead || o.carried || (o.n || 1) < 2 || n > 80) continue;
+    if ((o.x - eye[0]) ** 2 + (o.z - eye[2]) ** 2 > 30 * 30 || cutHides(o.x, o.z)) continue;
+    const p = project(vp, o.x, (o.y ?? world.height(o.x, o.z)) + 0.95, o.z);
+    if (!p || p[0] < -50 || p[1] < -20 || p[0] > canvas.clientWidth + 50 || p[1] > canvas.clientHeight + 40) continue;
+    let el = pool[n]; if (!el) { el = pool[n] = document.createElement('div'); overlay.appendChild(el); }
+    n++; el.style.display = ''; el.style.left = p[0] + 'px'; el.style.top = p[1] + 'px';
+    el.className = 'tag'; el.textContent = `${o.t === 'meat' ? 'Мясо' : (FOODS[o.kind || 'apple'] || FOODS.apple).ru} ×${o.n}${o.camp ? ' · склад' : ''}`;
   }
   for (let i = n; i < pool.length; i++) pool[i].style.display = 'none';
 }
@@ -533,7 +574,7 @@ function tribesPanel() {
   $('colonyTable').innerHTML = '<tr><th>колония</th>' + RK.map(k => `<th style="color:${ROLES[k].col}" title="${ROLES[k].desc}">${ROLES[k].ru}</th>`).join('') + '<th>склад</th><th>гнездо</th></tr>' + camps.filter(c => c.pop).map(c => {
     const cnt = {}; for (const r of robots) if (r.camp === c.id) cnt[r.role || 'young'] = (cnt[r.role || 'young'] || 0) + 1;
     const q = queenOf(c), n = c.nest, left = n ? n.cells.length - n.next : 0;
-    return `<tr><td style="color:${c.tribe ? tribeCss(c.tribe) : ''}">${esc((tribeOf(c.tribe) || {}).name || 'ничья')}<br><span class="muted">${esc(c.biome)}${q ? ', матка ' + esc(q.name) : ', без матки'}</span></td>` + RK.map(k => `<td>${cnt[k] || ''}</td>`).join('') + `<td>${foodCount(c.food)}</td><td>${n ? (nestNext(n) ? `роют: ${n.dug} бл.` : `готово (${n.dug} бл.)`) : '<span class="muted">нет</span>'}</td></tr>`;
+    return `<tr><td style="color:${c.tribe ? tribeCss(c.tribe) : ''}">${esc((tribeOf(c.tribe) || {}).name || 'ничья')}<br><span class="muted">${esc(c.biome)}${q ? ', матка ' + esc(q.name) : ', без матки'}</span></td>` + RK.map(k => `<td>${cnt[k] || ''}</td>`).join('') + `<td>${foodOf(c)}</td><td>${n && n.rooms ? `${n.rooms.filter(rm => rm.ready).map(rm => ROOM_RU[rm.purpose]).join(', ') || 'роют вход и ствол'} · ${n.dug} бл.<br><span class="muted">${ARCH_RU(n.arch)}</span>` : '<span class="muted">нет</span>'}</td></tr>`;
   }).join('');
   $('campTable').innerHTML = camps.length ? '<tr><th>стоянка</th><th>племя</th><th>жителей</th><th>основал</th><th>состояние</th></tr>' + camps.map(c => {
     const t = tribeOf(c.tribe), sg = Object.keys(c.siege || {}).filter(k => c.siege[k] > 0);

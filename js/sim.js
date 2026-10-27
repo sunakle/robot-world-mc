@@ -195,7 +195,7 @@ function initSim() {
   const t1 = newTribe(robots), c1 = newCamp(t1, bc.x, bc.z, robots[0].name);
   G.tribes[t1].capital = c1.id; for (const r of robots) { r.camp = c1.id; r.biomes = { [biomeAt(r.x, r.z)]: true }; }
   // колония сразу распределяет должности: матка, разведчики (по гену), остальные — по долям каст
-  c1.food = { apple: 14 };
+  pileFor(c1, 'apple').n = 14; // стартовый запас — кучка яблок у стоянки
   setRole(robots[1], 'queen', true); robots[1].x = bc.x; robots[1].z = bc.z;
   for (const r of robots) if (!r.role) assignRole(r);
   pushEvent(`Карта Minecraft: трава, деревья с яблоками, вода. 26 роботов начинают жизнь — первое племя ${G.tribes[t1].name}.`);
@@ -317,7 +317,7 @@ function body(r) {
 function happiness(r) { let s = 0, w = 0; for (let i = 0; i < ND; i++) { s += r.d[i] * DRIVES[i][2]; w += DRIVES[i][2]; } return 1 - s / w; }
 function shelterWalls(r) {
   let n = 0;
-  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) if (world.height(r.x + dx, r.z + dz) >= r.y + 1) n++;
+  for (const [dx, dz] of [[1, 0], [-1, 0], [0, 1], [0, -1], [1, 1], [1, -1], [-1, 1], [-1, -1]]) if (world.floorAt(r.x + dx, r.z + dz, r.y) >= r.y + 1) n++;
   return n;
 }
 
@@ -353,8 +353,9 @@ function updateRobot(r) {
     // расталкивание — только туда, где можно стоять (не внутрь блока)
     if (dd < m && dd > 1e-4) { const p = (m - dd) * 0.5, x = inX(r.x + dx / dd * p), z = inZ(r.z + dz / dd * p); if (standable(r, x, z)) { r.x = x; r.z = z; } }
   });
-  if (!standable({ ...r, y: world.height(r.x, r.z) }, r.x, r.z)) pushOut(r); // оказался в блоке — вытолкнуть
-  r.y = world.height(r.x, r.z);
+  const fy = world.floorAt(r.x, r.z, r.y);
+  if (fy > MAPY || !standable({ ...r, y: fy }, r.x, r.z)) pushOut(r); // оказался в блоке — вытолкнуть
+  const fy2 = world.floorAt(r.x, r.z, r.y); if (fy2 <= MAPY) r.y = fy2;
   if (r.carry && r.carry.dead) r.carry = null;
   if (r.carry) { r.carry.x = r.x; r.carry.z = r.z; }
   body(r);
@@ -364,9 +365,9 @@ const BODY_R = r => 0.22 * r.genes.size * (0.55 + 0.45 * growth(r));
 function climbLimit(r) { return world.depth(r.x, r.z) > 0.8 ? Math.max(1.05, world.waterLevel(r.x, r.z) - r.y + 1.05) : 1.05; }
 // можно ли стоять в точке: центр и края тела не упираются в блоки выше «шага»
 function standable(r, x, z) {
-  const lim = climbLimit(r), rr = BODY_R(r), h0 = world.height(x, z);
+  const lim = climbLimit(r), rr = Math.min(BODY_R(r), 0.14), h0 = world.floorAt(x, z, r.y); // узкий «корпус»: муравьи пролезают в ходы шириной в блок
   if (h0 - r.y > lim) return false;
-  for (const [ox, oz] of [[rr, 0], [-rr, 0], [0, rr], [0, -rr]]) if (world.height(x + ox, z + oz) - r.y > lim) return false;
+  for (const [ox, oz] of [[rr, 0], [-rr, 0], [0, rr], [0, -rr]]) if (world.floorAt(x + ox, z + oz, r.y) - r.y > lim) return false;
   return true;
 }
 // шаг в точку: возвращает долю пройденного (0 — нельзя)
@@ -375,14 +376,14 @@ function stepBody(r, nx, nz) {
   const dep = world.depth(nx, nz), swimming = world.depth(r.x, r.z) > 0.8;
   let f = dep > 0.8 ? 0.2 + 0.6 * (r.skill.swim || 0) : dep > 0 ? 0.45 : 1; // в глубину может зайти любой, но плыть — уметь
   if (!f || !standable(r, nx, nz)) return 0;
-  if (world.height(nx, nz) - r.y > 0.5) f *= 0.5;
+  if (world.floorAt(nx, nz, r.y) - r.y > 0.5) f *= 0.5;
   r.x += (nx - r.x) * f; r.z += (nz - r.z) * f;
   return f;
 }
 // вытолкнуть из блока на ближайшее место, где тело помещается
 function pushOut(r) {
   for (let d = 0.25; d <= 2.5; d += 0.25) for (let k = 0; k < 12; k++) {
-    const an = k / 12 * Math.PI * 2, x = inX(r.x + Math.sin(an) * d), z = inZ(r.z + Math.cos(an) * d), h = world.height(x, z);
+    const an = k / 12 * Math.PI * 2, x = inX(r.x + Math.sin(an) * d), z = inZ(r.z + Math.cos(an) * d), h = world.floorAt(x, z, r.y); if (h > MAPY) continue;
     if (world.depth(x, z) < 0.8 && standable({ ...r, x, z, y: h }, x, z)) { r.x = x; r.z = z; return; }
   }
 }
@@ -392,22 +393,22 @@ function unstick(r) {
   if (r.stuckT < 4) return;
   let best = null;
   for (let d = 1; d <= 3 && !best; d++) for (let k = 0; k < 16; k++) {
-    const a = k / 16 * Math.PI * 2, x = inX(r.x + Math.sin(a) * d), z = inZ(r.z + Math.cos(a) * d), h = world.height(x, z);
+    const a = k / 16 * Math.PI * 2, x = inX(r.x + Math.sin(a) * d), z = inZ(r.z + Math.cos(a) * d), h = world.floorAt(x, z, r.y);
     if (Math.abs(h - r.y) <= 1.05 && world.depth(x, z) < 0.8 && standable({ ...r, x, z, y: h }, x, z)) { best = [x, z, a]; break; }
   }
   if (best) {
     r.yaw = best[2];
     if (r.stuckT > 8) { r.x = best[0]; r.z = best[1]; r.stuckT = 0; } // долго не выходит — переступает
   } else if (r.stuckT > 10) { // заперт со всех сторон — выбирается наверх, как по лестнице
-    r.y = world.height(r.x, r.z); r.stuckT = 0;
+    r.y = world.floorAt(r.x, r.z, r.y); r.stuckT = 0;
     for (let d = 1; d <= 6; d++) for (let k = 0; k < 8; k++) { const a = k / 8 * 6.283, x = inX(r.x + Math.sin(a) * d), z = inZ(r.z + Math.cos(a) * d); if (!world.isWater(x, z)) { r.x = x; r.z = z; return; } }
   }
 }
 // ---------- прыжки: залезть на уступ в 2 блока. Навык растёт практикой, как ходьба ----------
 function jumpTarget(r) {
   for (const s of [0.8, 1.2]) {
-    const x = inX(r.x + Math.sin(r.yaw) * s), z = inZ(r.z + Math.cos(r.yaw) * s), dh = world.height(x, z) - r.y;
-    if (dh > 0.5 && dh <= 2.05 && world.depth(x, z) < 0.8 && standable({ ...r, y: world.height(x, z) }, x, z)) return [x, z];
+    const x = inX(r.x + Math.sin(r.yaw) * s), z = inZ(r.z + Math.cos(r.yaw) * s), fh = world.floorAt(x, z, r.y + 1), dh = fh - r.y;
+    if (dh > 0.5 && dh <= 2.05 && world.depth(x, z) < 0.8 && standable({ ...r, y: fh }, x, z)) return [x, z];
   }
   return null;
 }
@@ -417,7 +418,7 @@ function jump(r) {
   r.anim.jump = 1; r.st.jumps = (r.st.jumps || 0) + 1;
   practice(r, 'jump', 3);
   if (!t) return;
-  const dh = world.height(t[0], t[1]) - r.y;
+  const dh = world.floorAt(t[0], t[1], r.y + 1) - r.y;
   const chance = (0.2 + 0.75 * r.skill.jump) * (0.6 + 0.5 * strOf(r)) * (dh > 1.05 ? 0.8 : 1.2) * (0.55 + 0.45 * growth(r));
   if (Math.random() < chance) {
     r.x = t[0]; r.z = t[1]; r.d[9] = Math.max(0, r.d[9] - 0.05);
@@ -469,21 +470,20 @@ function checkHome(r, walls, roof) {
   }
 }
 // ---------- исследование: любопытные уходят в дальние леса, других зовут с собой ----------
-function nestUnder(r) {
-  const q = world.col(r.x, r.z); if (q < 0 || world.hi[q] - world.top[q] < 2 || world.get(q % MAPX, world.hi[q] - 1, q / MAPX | 0) !== B_ROOF) return null;
-  let best = null, bd = 14;
-  for (const c of G.camps || []) if (c.nest) { const d = Math.hypot(c.nest.x - r.x, c.nest.z - r.z); if (d < bd) { bd = d; best = c.nest; } }
-  return best;
-}
-function nestExit(r, n) {
-  if (Math.abs(r.z - n.z) > 0.45 && Math.abs(r.x - n.x) > 2.5) return { x: r.x, z: n.z }; // сначала на ось хода
-  if (Math.abs(r.z - n.z) > 0.45) return { x: Math.min(r.x + 1, n.x + 2), z: n.z };
-  return { x: n.x + 5.5, z: n.z };
+// клетка плана, до которой строитель дотягивается (3D: от тела до ближайшего ещё целого блока клетки)
+function digReach(r) {
+  if (r.role !== 'builder') return null;
+  const c = campById(r.camp), n = c && c.nest, cl = n && nestNext(n); if (!cl) return null;
+  for (let y = cl.f + cl.h - 1; y >= cl.f; y--) if (world.solid(cl.i, y, cl.k)) {
+    const d = Math.hypot(cl.i - HX + 0.5 - r.x, y + 0.5 - (r.y + 0.4), cl.k - HZ + 0.5 - r.z);
+    return d < reach(r) + 1.1 ? { n, cl } : null;
+  }
+  return null;
 }
 function steerTo(L, r, x, z, kb) {
-  const n = nestUnder(r); if (n && Math.hypot(x - n.x, z - n.z) > 6) ({ x, z } = nestExit(r, n)); // из гнезда — только через ход
   const a = normA(Math.atan2(x - r.x, z - r.z) - r.yaw);
-  L[1] += kb * Math.max(0, Math.sin(a)) * 1.6; L[2] += kb * Math.max(0, -Math.sin(a)) * 1.6; L[0] += kb * (Math.cos(a) * 0.9 + (Math.cos(a) > 0.4 ? 0.2 : -0.4)); // цель сбоку — сначала развернуться, не кружить
+  const sn = Math.sin(a), cs = Math.cos(a), tv = cs < 0.3 ? Math.max(Math.abs(sn), 0.8) * (sn >= 0 ? 1 : -1) : sn; // цель сзади — тоже уверенно разворачиваемся
+  L[1] += kb * Math.max(0, tv) * 1.6; L[2] += kb * Math.max(0, -tv) * 1.6; L[0] += kb * (cs * 0.9 + (cs > 0.4 ? 0.2 : -0.4)); // цель сбоку — сначала развернуться, не кружить
 }
 function exploreGoal(r) {
   const g = r.genes, I = r.inp;
@@ -589,7 +589,7 @@ function sense(r) {
   near(treeGrid, r.x, r.z, R * 1.6, t => { const dd = (t.x - r.x) ** 2 + (t.z - r.z) ** 2; if (dd < td) { td = dd; tree = t; } });
   for (const s of [1, 2]) {
     const x = r.x + Math.sin(r.yaw) * s, z = r.z + Math.cos(r.yaw) * s;
-    if (world.height(x, z) - r.y > 1.05 && s * s < bd.obst) { bd.obst = s * s; best.obst = { t: 'wall', x, z }; break; }
+    if (world.floorAt(x, z, r.y) - r.y > 1.05 && s * s < bd.obst) { bd.obst = s * s; best.obst = { t: 'wall', x, z }; break; }
   }
   const RW = R * 2;
   let wbest = null, wd = RW;
@@ -638,7 +638,7 @@ function sense(r) {
   for (let k = 0; k < VIS_RAYS; k++) {
     const a = r.yaw + (k / VIS_RAYS - 0.5) * Math.PI * 2, x = r.x + Math.sin(a) * 3, z = r.z + Math.cos(a) * 3;
     V[k * VIS_FEAT] = night ? 0.3 : 0.8;
-    V[k * VIS_FEAT + 1] = clamp((world.height(x, z) - r.y) / 3 + 0.5, 0, 1);
+    V[k * VIS_FEAT + 1] = clamp((Math.min(world.floorAt(x, z, r.y), r.y + 3) - r.y) / 3 + 0.5, 0, 1);
     V[k * VIS_FEAT + 2] = world.isWater(x, z) ? 1 : 0;
   }
   const see = (o, f, rng) => { if (!o) return; const a = normA(Math.atan2(o.x - r.x, o.z - r.z) - r.yaw); const k = clamp(Math.floor((a / (Math.PI * 2) + 0.5) * VIS_RAYS), 0, VIS_RAYS - 1); V[k * VIS_FEAT + f] = Math.max(0.05, 1 - Math.hypot(o.x - r.x, o.z - r.z) / rng); };
@@ -652,9 +652,9 @@ function sense(r) {
   const Rr = reach(r);
   av[3] = (r.energy < 97 && nearestIn(r, Rr, isFood)) || (r.water < 95 && nearWater(r)) || (r.energy < 80 && (r.inv.cooked || r.inv.meat || Object.keys(FOODS).some(k => r.inv[k]))) || nearTrunk ||
     nearestIn(r, Rr + 0.8, o => o.t === 'letter' && !o.carried) || nearestIn(r, Rr, o => o.t === 'grass' || o.t === 'block') || nearestRobot(r, Rr + 0.4) ? 1 : 0;
-  av[5] = r.carry || nearestIn(r, reach(r), o => CARRY.has(o.t) || o.t === 'meat') || (I[47] && r.role === 'builder' && placeSpot(r)) ? 1 : 0; // ставить блоки — тоже дело строителей
+  av[5] = r.carry || nearestIn(r, reach(r), o => (CARRY.has(o.t) || o.t === 'meat') && !o.camp) || (I[47] && r.role === 'builder' && farNest && placeSpot(r)) ? 1 : 0; // ставить блоки — тоже дело строителей
   av[7] = 0; // спариваться некому: потомство даёт только матка (яйца)
-  if (r.role === 'builder') { const c = campById(r.camp), n = c && c.nest, cl = n && nestNext(n); if (cl && Math.hypot(cl.i - HX + 0.5 - r.x, cl.k - HZ + 0.5 - r.z) < reach(r) + 1.4) av[4] = 1; }
+  if (digReach(r)) av[4] = 1;
   av[9] = nearestZombie(r, reach(r) + 0.6) || nearestRobot(r, reach(r)) ? 1 : 0;
   if (r.inv.seed && farmSpot(r)) av[5] = 1;
   av[10] = RECIPES.some(rc => canCraftQuick(r, rc, I[44], I[45])) ? 1 : 0;
@@ -733,8 +733,8 @@ function instinct(r) {
     const jb = roleJob(r);
     if (jb) {
       best = null; exploring = true;
-      if (jb.near && (jb.act == null || r.avail[jb.act])) { if (jb.act != null) L[jb.act] += k * 3; }
-      else { const wp = pathTo(r, jb.x, jb.z); steerTo(L, r, wp.x, wp.z, k * 1.5); L[0] += k * 0.5; if (r.d[3] < 0.7) L[8] -= k * 1.5; } // по тропе, а не напролом
+      if (jb.near && (jb.act == null || r.avail[jb.act])) { if (jb.act != null) { L[jb.act] += k * 3; for (const o of [3, 6, 8]) if (o !== jb.act) L[o] -= k * 1.5; } } // на месте — делать дело, не болтать и не трогать соседей
+      else { const wp = pathTo(r, jb.x, jb.z, jb.y); steerTo(L, r, wp.x, wp.z, k * 2.2); L[0] += k * 0.6; if (r.d[3] < 0.7) L[8] -= k * 2.5; L[6] -= k * 2; L[3] -= k * 1.5; } // по тропе, а не напролом; в пути не болтать, не рассиживаться и не толкаться
       r.intent = { label: jb.label, x: jb.x, z: jb.z };
     }
   }
@@ -763,9 +763,10 @@ function instinct(r) {
   const need = Math.max(hunger, thirst);
   if (need > 0.5) { L[6] -= kk * need * 1.5; L[7] -= kk * need; L[8] -= kk * need; }
   // в гнезде, а дело снаружи — к выходу (ход идёт по оси гнезда)
-  const nn = nestUnder(r);
-  if (nn && !(r.intent && Math.hypot(r.intent.x - nn.x, r.intent.z - nn.z) < 6) && !(isNight() && r.role !== 'soldier')) {
-    const ex = nestExit(r, nn); steerTo(L, r, ex.x, ex.z, k * 2); r.intent = { label: 'выходит из гнезда', x: ex.x, z: ex.z };
+  // под землёй без дела внизу — по ходам к выходу (вода, деревья и всё прочее — наверху)
+  if (!exploring && world.under(r.x, r.z, r.y)) {
+    const ex = nestExitFor(r);
+    if (ex) { const wp = pathTo(r, ex.x, ex.z, ex.y); L.fill(0); steerTo(L, r, wp.x, wp.z, k * 2.2); L[0] += k * 0.6; L[6] -= k * 2; if (r.d[3] < 0.7) L[8] -= k * 2.5; r.intent = { label: 'выбирается из муравейника наверх', x: ex.x, z: ex.z }; }
   }
   return L;
 }
@@ -831,19 +832,19 @@ const front = (r, s) => [r.x + Math.sin(r.yaw) * s, r.z + Math.cos(r.yaw) * s];
 const annoy = (r, x = 0.06) => { r.d[10] = Math.min(1, r.d[10] + x * (0.5 + r.genes.temper)); }; // неудача злит
 function digValue(r) {
   const [x, z] = front(r, 0.6 + 0.3 * r.genes.size);
-  if (world.isWater(x, z) || world.height(x, z) < r.y - 1 || (world.height(x, z) - 1 < world.sea && world.wetNear(x, z)) || world.height(x, z) <= 2) return 0;
+  if (world.under(r.x, r.z, r.y) || world.isWater(x, z) || world.height(x, z) < r.y - 1 || (world.height(x, z) - 1 < world.sea && world.wetNear(x, z)) || world.height(x, z) <= 2) return 0;
   const id = world.topBlock(x, z);
   return !DIGGABLE(id) ? 0 : id === B_STONE ? 0.5 : 1;
 }
 function placeValue(r) {
   if (!r.carry || r.carry.t !== 'block') return 0;
   const [x, z] = front(r, 0.8);
-  return !world.isWater(x, z) && world.height(x, z) <= r.y ? 1 : 0;
+  return !world.under(r.x, r.z, r.y) && !world.isWater(x, z) && world.height(x, z) <= r.y ? 1 : 0;
 }
 function nearestIn(r, R, pred) {
   let best = null, bd = R * R;
   near(objGrid, r.x, r.z, R, o => {
-    if (o.dead || o.carried || !pred(o)) return;
+    if (o.dead || o.carried || !pred(o) || (o.y !== undefined && Math.abs(o.y - r.y) > 1.6)) return;
     const dd = (o.x - r.x) ** 2 + (o.z - r.z) ** 2;
     if (dd < bd) { bd = dd; best = o; }
   });
@@ -878,7 +879,7 @@ function interact(r) {
   annoy(r, 0.03);
 }
 function eat(r, o) {
-  o.dead = true; world.removed = true;
+  if ((o.n || 1) > 1) o.n--; else { o.dead = true; world.removed = true; } // из кучки — по одной
   if (o.t === 'melon') { r.energy = Math.min(100, r.energy + 40); r.water = Math.min(100, r.water + 20); bagAdd(r, 'seed', 1 + (Math.random() < 0.5 ? 1 : 0)); r.st.food++; r.st.melons = (r.st.melons || 0) + 1; first('melon', `${r.name} первым съел выращенный арбуз`); return; }
   const fd = o.t === 'fruit' ? FOODS[o.kind || 'apple'] : null;
   r.energy = Math.min(100, r.energy + (fd ? fd.e : 25)); r.st.food++;
@@ -922,7 +923,7 @@ function greet(r, m) {
 }
 // копать тяжело: много энергии и усталости; успех — навык, сила и инструмент. Добыча идёт в сумку
 function dig(r) {
-  if (r.role === 'builder') { const c = campById(r.camp), n = c && c.nest, cl = n && nestNext(n); if (cl && Math.hypot(cl.i - HX + 0.5 - r.x, cl.k - HZ + 0.5 - r.z) < reach(r) + 1.4) return nestStep(r, n, cl); }
+  const dr = digReach(r); if (dr) return nestStep(r, dr.n, dr.cl);
   const [x, z] = front(r, 0.6 + 0.3 * r.genes.size);
   r.energy -= 3; r.d[3] = Math.min(1, r.d[3] + 0.1);
   // рубка: перед роботом ствол
@@ -955,13 +956,13 @@ function dig(r) {
 // «Взять / поставить»: подобрать предмет в сумку; если рядом нечего брать — поставить блок из сумки
 function carryToggle(r) {
   if (r.carry) { const c = r.carry; c.carried = false; r.carry = null; const [x, z] = front(r, 0.8); c.x = inX(x); c.z = inZ(z); return; }
-  const o = nearestIn(r, reach(r), o => CARRY.has(o.t) || o.t === 'meat');
+  const o = nearestIn(r, reach(r), o => (CARRY.has(o.t) || o.t === 'meat') && !o.camp); // склад колонии не растаскивают
   if (o) {
     if (o.t === 'letter') { o.carried = true; r.carry = o; }
     else {
       const k = o.t === 'fruit' ? (o.kind || 'apple') : o.t === 'meat' ? 'meat' : DROP[o.id] || 'dirt';
       if (!bagAdd(r, k)) { annoy(r, 0.02); return; }
-      o.dead = true; world.removed = true;
+      if ((o.n || 1) > 1) o.n--; else { o.dead = true; world.removed = true; }
     }
     r.st.carried++; practice(r, 'carry', 3); r.d[9] = Math.max(0, r.d[9] - 0.04);
     first('carry', `${r.name} первым подобрал предмет`);
@@ -980,7 +981,7 @@ function carryToggle(r) {
 // неумелый робот роняет что-нибудь по дороге
 function dropCarry(r) {
   if (r.carry) { const c = r.carry; c.carried = false; r.carry = null; c.x = r.x; c.z = r.z; return; }
-  const ks = Object.keys(r.inv); if (!ks.length) return;
+  const ks = Object.keys(r.inv).filter(k => r.role !== 'builder' || !['dirt', 'cobble', 'gravel', 'sand', 'clay'].includes(k)); if (!ks.length) return; // строитель землю не роняет — несёт на холм
   const k = pick(ks); bagTake(r, k);
   if (FOODS[k]) world.add({ t: 'fruit', kind: k, x: r.x, z: r.z, age: 0 });
   else if (k === 'meat') world.add({ t: 'meat', x: r.x, z: r.z, age: 0 });

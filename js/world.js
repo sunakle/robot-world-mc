@@ -94,6 +94,27 @@ class World {
     return this.b[this.idx(i, y, k)];
   }
   height(x, z) { const c = this.col(x, z); return c < 0 ? MAPY + 5 : this.top[c]; }
+  // твёрдый для тела блок (листва и воздух — нет)
+  solid(i, y, k) { if (y < 0) return true; if (i < 0 || k < 0 || i >= MAPX || k >= MAPZ || y >= MAPY) return false; const b = this.b[this.idx(i, y, k)]; return b !== 0 && b !== B_LEAVES; }
+  // пол под ногами с учётом подземных ходов: ищем сверху вниз от уровня робота (можно шагнуть на блок вверх),
+  // между полом и головой (высота 2) должно быть пусто. Нет прохода — очень высокая «стена».
+  floorAt(x, z, y) {
+    const c = this.col(x, z); if (c < 0) return MAPY + 5;
+    const i = c % MAPX, k = c / MAPX | 0, t = this.top[c];
+    if (y >= t - 0.5) return t; // на поверхности — как раньше
+    return this.floorCell(i, k, y);
+  }
+  floorCell(i, k, y) {
+    const top = Math.min(Math.floor(y + 1.05), MAPY), head = Math.floor(y + 0.01) + 1;
+    for (let L = top - 1; L >= 0; L--) if (this.solid(i, L, k)) {
+      const f = L + 1;
+      for (let yy = f, ye = Math.max(f + 1, head); yy <= ye; yy++) if (this.solid(i, yy, k)) return MAPY + 5;
+      return f;
+    }
+    return 0;
+  }
+  // робот под землёй (над ним толща грунта)
+  under(x, z, y) { const c = this.col(x, z); return c >= 0 && y < this.top[c] - 1.5; }
   isWater(x, z) { const c = this.col(x, z); return c >= 0 && this.wl[c] > this.top[c]; }
   depth(x, z) { const c = this.col(x, z); return c < 0 ? 0 : Math.max(0, this.wl[c] - this.top[c]); }
   waterLevel(x, z) { const c = this.col(x, z); return c < 0 ? 0 : this.wl[c]; }
@@ -176,7 +197,15 @@ class World {
     }
     return [0, 0];
   }
-  add(o) { this.objects.push(o); }
+  // плоды и мясо складываются в кучки: рядом с такой же кучкой — просто +1 к счётчику
+  add(o) {
+    if ((o.t === 'fruit' || o.t === 'meat') && !o.camp && !o.carried) {
+      const kind = o.kind || o.t;
+      const m = this.objects.find(p => !p.dead && !p.carried && !p.camp && p.t === o.t && (p.kind || p.t) === kind && p.y === o.y && (p.x - o.x) ** 2 + (p.z - o.z) ** 2 < 0.5);
+      if (m) { m.n = (m.n || 1) + (o.n || 1); m.age = Math.min(m.age || 0, o.age || 0); return m; }
+    }
+    this.objects.push(o); return o;
+  }
   // яблоки растут только на деревьях; спелые иногда падают сами, лежащие — гниют
   tick(dt, rate) {
     for (const t of this.trees) {
@@ -191,7 +220,7 @@ class World {
       if (o.age > LETTER_LIFE) { o.dead = true; this.removed = true; letters--; if (o.carried) o.carried = false; }
     }
     if (G.alphabet && letters === 0) { G.alphabet = false; pushEvent('Алфавит рассыпался. Роботы помнят только то, что успели выучить.'); }
-    for (const o of this.objects) if ((o.t === 'fruit' || o.t === 'meat') && !o.carried && (o.age = (o.age || 0) + dt) > 200) { o.dead = true; this.removed = true; }
+    for (const o of this.objects) if ((o.t === 'fruit' || o.t === 'meat') && !o.carried && !o.camp && (o.age = (o.age || 0) + dt) > 200) { o.dead = true; this.removed = true; }
     // арбузы растут, у воды быстрее; трава понемногу отрастает
     let grassN = 0;
     for (const o of this.objects) {

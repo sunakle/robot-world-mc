@@ -1,8 +1,8 @@
 'use strict';
-// ================= Отрисовка: блочный мир, вода, роботы-утки и их анимация =================
+// ================= Отрисовка: блочный мир, вода, роботы-муравьи и их анимация =================
 let R, B = {};
 const OPAQUE = ['thigh', 'pad', 'shin', 'footTop', 'sole', 'body', 'bodyFix', 'neck', 'dome', 'headFix', 'eye', 'jaw',
-  'fruit', 'cone', 'berry', 'cocoa', 'root', 'letter', 'block', 'meat', 'tuft', 'melon', 'sprout', 'zHead', 'zBody', 'zArm', 'zLeg'];
+  'aBall', 'aSeg', 'fruit', 'cone', 'berry', 'cocoa', 'root', 'letter', 'block', 'meat', 'tuft', 'melon', 'sprout', 'zHead', 'zBody', 'zArm', 'zLeg'];
 const DARK = [0.13, 0.13, 0.15], METAL = [0.62, 0.64, 0.68];
 
 function initRender(canvas) {
@@ -12,7 +12,10 @@ function initRender(canvas) {
   const at = (x, y, z, f) => { const m = T(x, y, z); if (f) f(m); return m; };
   const mk = (key, geo) => { B[key] = new Batch(R.mesh(geo)); };
 
-  // ----- части робота (размеры для робота размера 1) -----
+  // ----- муравей: шар (голова, грудь, стебелёк, брюшко, глаза — растягиваются) и отрезок (ноги, усики, жвалы) -----
+  mk('aBall', new Geo().add(gSphere(1, 16, 10)));
+  mk('aSeg', new Geo().add(gCyl(1, 0.7, 1, 7)));
+  // ----- части робота-утки (сейчас не рисуются) -----
   mk('dome', new Geo().add(gSphere(1, 24, 14, -0.3), S(0.34, 0.27, 0.52)));
   const face = new Geo()
     .add(gCyl(1, 1, 1, 24), at(0, 0, 0.455, m => { M4.rotX(m, Math.PI / 2); M4.scale(m, 0.22, 0.03, 0.17); }), [0.55, 0.56, 0.58])
@@ -98,19 +101,26 @@ const FACES = [
 ];
 const AO = [0.42, 0.6, 0.8, 1];
 // «непрозрачный» сосед закрывает грань; листва прозрачная
-// режим наблюдателя: в круглом «окне» вокруг камеры всё выше среза не рисуется — видно ходы и камеры под землёй,
-// а остальной мир остаётся целым
-const CUT_R = 9;
-let CUT = null; // { y, i, k } — высота среза и центр окна в клетках карты
-const inCut = (i, k) => CUT !== null && (i - CUT.i) ** 2 + (k - CUT.k) ** 2 <= CUT_R * CUT_R;
-const cutTop = (i, k) => inCut(i, k) ? CUT.y : Infinity;
-const cutHides = (x, z, y) => CUT !== null && y > CUT.y + 0.5 && inCut(Math.floor(x + HX), Math.floor(z + HZ));
+// режим наблюдателя: срез сбоку, как на схеме муравейника. Всё между камерой и вертикальной плоскостью
+// (в полосе шириной 2·CUT_W) не рисуется — видна стенка земли с ходами и камерами.
+const CUT_W = 22, CUT_D = 40;
+let CUT = null; // { ax: 0 — плоскость поперёк x, 1 — поперёк z; p — первый скрытый слой; sg — с какой стороны камера; c — центр полосы }
+function inCut(i, k) {
+  if (CUT === null) return false;
+  const a = CUT.ax ? k : i, b = CUT.ax ? i : k, da = (a - CUT.p) * CUT.sg;
+  return da >= 0 && da <= CUT_D && Math.abs(b - CUT.c) <= CUT_W;
+}
+const cutTop = (i, k) => inCut(i, k) ? 0 : Infinity;
+const cutHides = (x, z) => CUT !== null && inCut(Math.floor(x + HX), Math.floor(z + HZ));
 function setCut(c) {
   const old = CUT;
-  if ((!old && !c) || (old && c && old.y === c.y && old.i === c.i && old.k === c.k)) return;
+  if ((!old && !c) || (old && c && old.ax === c.ax && old.p === c.p && old.sg === c.sg && old.c === c.c)) return;
   CUT = c;
-  // перестраиваем только чанки под старым и новым окном
-  for (const w of [old, c]) if (w) for (let cz = (w.k - CUT_R - 1) >> 4; cz <= (w.k + CUT_R + 1) >> 4; cz++) for (let cx = (w.i - CUT_R - 1) >> 4; cx <= (w.i + CUT_R + 1) >> 4; cx++) world.dirtyChunks.add(cx + ',' + cz);
+  // перестраиваем только чанки под старой и новой полосой (и соседние — там видна стенка среза)
+  for (const w of [old, c]) if (w) for (let d = -1; d <= CUT_D + 1; d++) for (let b = w.c - CUT_W - 1; b <= w.c + CUT_W + 17; b += 8) {
+    const a = w.p + d * w.sg, bb = Math.min(b, w.c + CUT_W + 1), i = w.ax ? bb : a, k = w.ax ? a : bb;
+    if (i >= 0 && k >= 0 && i < MAPX && k < MAPZ) world.dirtyChunks.add((i >> 4) + ',' + (k >> 4));
+  }
   world.waterDirty = true;
 }
 function solidAt(i, y, k) {
@@ -207,41 +217,67 @@ function legAngles(A, side) {
   a1 += 0.25 * A.dig; kk += 0.45 * A.dig;
   return [a1, kk];
 }
+// цвет муравья: по генам (окраска) с оттенком племени
+const ANT_PAL = [[0.42, 0.14, 0.07], [0.12, 0.1, 0.09], [0.62, 0.27, 0.08], [0.46, 0.32, 0.12], [0.27, 0.15, 0.1], [0.66, 0.15, 0.07]];
+function antColor(r) {
+  const g = r.genes, a = ANT_PAL[g.shell % 6], b = ANT_PAL[g.acc % 6], t = G.tribes ? tribeColor(r.tribe) : [0.5, 0.5, 0.5];
+  return [0, 1, 2].map(i => (a[i] * 0.7 + b[i] * 0.3) * 0.72 + t[i] * 0.28);
+}
+// отрезок между точками a и b (в системе тела): единичный цилиндр, вытянутый вдоль отрезка
+const SEG_M = new Float32Array(16);
+function segM(root, a, b, th) {
+  const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], L = Math.hypot(dx, dy, dz) || 1e-4, y = [dx / L, dy / L, dz / L];
+  let x = Math.abs(y[1]) < 0.9 ? [y[2], 0, -y[0]] : [1, 0, 0]; const xl = Math.hypot(x[0], x[1], x[2]); x = x.map(v => v / xl);
+  const z = [x[1] * y[2] - x[2] * y[1], x[2] * y[0] - x[0] * y[2], x[0] * y[1] - x[1] * y[0]];
+  SEG_M.set([x[0] * th, x[1] * th, x[2] * th, 0, dx, dy, dz, 0, z[0] * th, z[1] * th, z[2] * th, 0, a[0], a[1], a[2], 1]);
+  return M4.mul(root, SEG_M);
+}
+const ballM = (root, x, y, z, sx, sy, sz) => M4.scale(M4.translate(M4.copy(root), x, y, z), sx, sy, sz);
 function drawRobot(r, now) {
-  const g = r.genes, A = r.anim, s = g.size * (0.55 + 0.45 * growth(r));
-  const sh = PAL_SHELL[g.shell], ac = PAL_ACC[g.acc], ft = PAL_ACC[g.foot], ey = PAL_EYE[g.eye];
-  const side0 = r.id % 2 ? 1 : -1, Lb = 0.36 * g.leg;
-  const legs = [-1, 1].map(side => { const L = side === side0 ? 1 - g.asym * 0.3 : 1; const [a1, kk] = legAngles(A, side); return { side, a1, kk, Lt: Lb * L, Ls: Lb * L }; });
-  const hipY = 0.09 + Math.max(...legs.map(l => l.Lt * Math.cos(l.a1) + l.Ls * Math.cos(l.kk - l.a1)));
+  const g = r.genes, A = r.anim, role = r.role;
+  const caste = role === 'queen' ? 1.45 : role === 'soldier' ? 1.15 : 1;
+  const s = g.size * (0.55 + 0.45 * growth(r)) * caste * 1.1;
+  const col = antColor(r), leg = col.map(v => v * 0.62), dark = [0.05, 0.05, 0.06];
+  const hs = (role === 'soldier' ? 1.35 : 1) * (0.85 + 0.15 * g.head);
   const ry = (A.y ?? r.y) + Math.sin((A.jump || 0) * Math.PI) * 0.9, root = T(r.x, ry, r.z); M4.rotY(root, r.yaw); M4.scale(root, s);
-  for (const l of legs) {
-    const hip = M4.rotX(M4.translate(M4.copy(root), l.side * 0.12, hipY, 0), -l.a1);
-    B.thigh.push(M4.scale(M4.translate(M4.copy(hip), 0, -l.Lt / 2, 0), 1, l.Lt / 0.27, 1));
-    B.pad.push(M4.translate(M4.copy(hip), l.side * 0.07, -l.Lt * 0.5, 0.02), ...sh);
-    const knee = M4.rotX(M4.translate(M4.copy(hip), 0, -l.Lt, 0), l.kk);
-    B.shin.push(M4.scale(M4.translate(M4.copy(knee), 0, -l.Ls / 2, 0), 1, l.Ls / 0.27, 1));
-    const ankle = M4.rotX(M4.translate(M4.copy(knee), 0, -l.Ls, 0), l.a1 - l.kk);
-    const fc = g.asym > 0.45 && l.side === side0 ? PAL_ACC[(g.foot + 2) % PAL_ACC.length] : ft;
-    B.footTop.push(M4.translate(M4.copy(ankle), 0, -0.03, 0.04), ...ac);
-    B.sole.push(M4.translate(M4.copy(ankle), 0, -0.07, 0.04), ...fc);
+  const w = A.walk, sit = A.sit, dig = A.dig, by = 0.21 - 0.08 * sit + Math.abs(Math.sin(A.ph * 2)) * 0.012 * w;
+  const gq = role === 'queen' ? 1.45 : 1;
+  // брюшко, стебелёк, грудь, голова, глаза
+  B.aBall.push(ballM(root, 0, by + 0.02 * gq, -0.3 - 0.07 * (gq - 1), 0.15 * gq, 0.13 * gq, 0.21 * gq), ...col);
+  B.aBall.push(ballM(root, 0, by, -0.07, 0.045, 0.05, 0.05), ...leg);
+  B.aBall.push(ballM(root, 0, by + 0.005, 0.08, 0.075, 0.068, 0.15), ...col);
+  const hy = by + 0.04 - 0.07 * dig, hz = 0.27 + 0.03 * hs;
+  B.aBall.push(ballM(root, 0, hy, hz, 0.12 * hs, 0.1 * hs, 0.115 * hs), ...col);
+  for (const sd of [-1, 1]) B.aBall.push(ballM(root, sd * 0.09 * hs, hy + 0.03 * hs, hz + 0.04 * hs, 0.035 * hs, 0.035 * hs, 0.035 * hs), ...dark);
+  // крылья у матки
+  if (role === 'queen') for (const sd of [-1, 1]) B.aBall.push(M4.scale(M4.rotY(M4.translate(M4.copy(root), sd * 0.13, by + 0.1, -0.2), sd * 0.35), 0.11, 0.01, 0.3), 0.82, 0.86, 0.9);
+  // жвалы: открываются, когда копает или ест
+  const open = 0.25 + 0.35 * Math.abs(Math.sin(A.t * 14)) * Math.max(dig, r.action === 3 ? 1 : 0);
+  for (const sd of [-1, 1]) {
+    const a = [sd * 0.05 * hs, hy - 0.03 * hs, hz + 0.09 * hs], b = [sd * (0.05 - 0.09 * Math.cos(open * 2)) * hs, hy - 0.04 * hs, hz + (0.1 + 0.08 * Math.sin(open * 2 + 0.6)) * hs];
+    B.aSeg.push(segM(root, a, b, 0.02 * hs), ...leg);
   }
-  const body = M4.translate(M4.copy(root), 0, hipY + 0.1, 0);
-  M4.rotX(body, 0.08 * A.walk + 0.35 * A.dig - 0.05 * A.sit); M4.rotZ(body, Math.sin(A.ph) * 0.06 * A.walk);
-  B.body.push(M4.translate(M4.copy(body), 0, 0.03, 0), ...sh);
-  B.bodyFix.push(body);
-  const neckP = 0.12 + 0.1 * Math.sin(A.ph * 2) * A.walk + A.dig * (0.85 + 0.15 * Math.sin(A.t * 14)) + A.sit * 0.1;
-  const nb = M4.rotX(M4.translate(M4.copy(body), 0, 0.14, -0.02), neckP);
-  B.neck.push(M4.translate(M4.copy(nb), 0, 0.15, 0));
-  const head = M4.translate(M4.copy(nb), 0, 0.3, 0);
-  M4.rotX(head, -neckP * 0.6 - 0.08 * A.walk * Math.sin(A.ph * 2)); M4.rotZ(head, g.asym * 0.45 * side0); M4.scale(head, g.head);
-  const hc = M4.translate(M4.copy(head), 0, 0.14, 0.1);
-  B.dome.push(hc, ...sh); B.headFix.push(hc); B.eye.push(hc, ...ey);
-  const talking = r.say && r.say.until > now && r.action === 6;
-  const jaw = M4.translate(M4.copy(head), 0, 0.04, -0.32);
-  M4.rotX(jaw, talking ? 0.35 * Math.abs(Math.sin(A.t * 16)) : 0); M4.translate(jaw, 0, 0, 0.42);
-  B.jaw.push(jaw, ...ac);
-  if (r.carry) pushItem(r.carry, M4.translate(M4.copy(head), 0, -0.12, 0.62));
-  B.shadow.push(M4.scale(T(r.x, ry + 0.03, r.z), s * 1.15), ...(G.tribes ? tribeColor(r.tribe).map(v => v * 0.8) : [0, 0, 0]));
+  // усики: колено и подрагивание
+  for (const sd of [-1, 1]) {
+    const wig = Math.sin(A.t * 5 + sd) * 0.03, a = [sd * 0.04 * hs, hy + 0.07 * hs, hz + 0.07 * hs], k = [sd * 0.13 * hs, hy + 0.2 * hs, hz + 0.12 * hs];
+    const e = [sd * (0.17 + wig) * hs, hy + (0.17 + wig) * hs - 0.06 * dig, hz + 0.3 * hs];
+    B.aSeg.push(segM(root, a, k, 0.012), ...leg); B.aSeg.push(segM(root, k, e, 0.01), ...leg);
+  }
+  // шесть ног, походка «треногой»: передняя и задняя одной стороны + средняя другой — вместе
+  const hips = [0.15, 0.08, 0.01], feetZ = [0.33, 0.07, -0.25];
+  for (let p = 0; p < 3; p++) for (const sd of [-1, 1]) {
+    const grp = (p === 1) === (sd > 0) ? 0 : Math.PI, ph = A.ph * 1.4 + grp;
+    const sw = Math.sin(ph) * 0.09 * w, lift = Math.max(0, Math.cos(ph)) * 0.07 * w;
+    const hip = [sd * 0.05, by - 0.02, hips[p]], foot = [sd * (0.3 - 0.08 * sit), lift * 0.6, feetZ[p] + sw];
+    const knee = [sd * 0.2, by + 0.11 + lift - 0.06 * sit, (hip[2] + foot[2]) / 2 + 0.02];
+    B.aSeg.push(segM(root, hip, knee, 0.018), ...leg); B.aSeg.push(segM(root, knee, foot, 0.014), ...leg);
+  }
+  // в жвалах — несомое: буква/предмет или плод из сумки фуражира
+  const fk = r.carry ? null : Object.keys(FOODS).find(k => r.inv[k]);
+  const mouth = M4.translate(M4.copy(root), 0, hy - 0.06, hz + 0.24 * hs);
+  if (r.carry) pushItem(r.carry, mouth);
+  else if (fk) B[FRUIT_MESH[fk] || 'fruit'].push(M4.scale(M4.copy(mouth), 0.8));
+  B.shadow.push(M4.scale(T(r.x, ry + 0.03, r.z), s * 1.1), ...(G.tribes ? tribeColor(r.tribe).map(v => v * 0.8) : [0, 0, 0]));
 }
 
 function drawZombie(zb, dt) {
@@ -261,7 +297,12 @@ function hsl(h, s, l) {
   return [f(0), f(8), f(4)];
 }
 function pushItem(o, m) {
-  if (!m) m = M4.rotY(T(o.x, world.height(o.x, o.z), o.z), o.rot || 0);
+  if (!m) m = M4.rotY(T(o.x, o.y ?? world.height(o.x, o.z), o.z), o.rot || 0);
+  if ((o.t === 'fruit' || o.t === 'meat') && (o.n || 1) > 1) { // кучка: стопкой, до 30 штук видно
+    const key = o.t === 'meat' ? 'meat' : FRUIT_MESH[o.kind] || 'fruit', n = Math.min(o.n, STACK.length);
+    for (let j = 0; j < n; j++) { const q = STACK[j]; B[key].push(M4.translate(M4.copy(m), q[0], q[1] + (o.t === 'meat' ? 0.06 : 0.11), q[2])); }
+    return;
+  }
   switch (o.t) {
     case 'block': { const tl = TILES[o.id][1]; B.block.push(M4.translate(M4.copy(m), 0, 0.16, 0), 1, 1, 1, (tl % ATL) / ATL, (tl / ATL | 0) / 4, 3); break; }
     case 'meat': B.meat.push(M4.translate(M4.copy(m), 0, 0.06, 0)); break;
@@ -279,9 +320,12 @@ function pushItem(o, m) {
 function camEye(c) {
   const e = [c.tx + c.dist * Math.cos(c.pitch) * Math.sin(c.yaw), c.ty + c.dist * Math.sin(c.pitch), c.tz + c.dist * Math.cos(c.pitch) * Math.cos(c.yaw)];
   const hx = Math.max(-HX, Math.min(HX - 0.01, e[0])), hz = Math.max(-HZ, Math.min(HZ - 0.01, e[2]));
-  e[1] = Math.max(e[1], world.height(hx, hz) + 0.4, world.waterLevel(hx, hz) + 0.3); // камера не уходит под землю и воду
+  if (!cutHides(hx, hz)) e[1] = Math.max(e[1], world.height(hx, hz) + 0.4, world.waterLevel(hx, hz) + 0.3); // камера не уходит под землю и воду (кроме среза)
   return e;
 }
+// раскладка кучки: слои 4×4, 3×3, 2×2 и макушка
+const STACK = [];
+for (const [n, y] of [[4, 0], [3, 0.19], [2, 0.38], [1, 0.56]]) for (let a = 0; a < n; a++) for (let b = 0; b < n; b++) STACK.push([(a - (n - 1) / 2) * 0.22, y, (b - (n - 1) / 2) * 0.22]);
 const FRUIT_MESH = { apple: 'fruit', cone: 'cone', berry: 'berry', cocoa: 'cocoa' };
 const APPLE_SPOTS = [[1.6, 2.85, 0.4], [-1.55, 2.85, -0.6], [0.5, 2.85, 1.6], [-0.6, 2.85, -1.55], [1.5, 3.4, -1.2]];
 const CHUNK_INST = (() => { const d = new Float32Array(INST); d.set(M4.create()); d[16] = d[17] = d[18] = 1; d[21] = 2; return d; })();
@@ -301,10 +345,10 @@ function renderFrame(cam, dt, mul, selected, W, H) {
   if (world.waterDirty && now - lastWaterUp > 400) { buildWater(); lastWaterUp = now; }
   for (const m of chunks.values()) R.drawInst(m, CHUNK_INST, 1);
   for (const k in B) B[k].n = 0;
-  for (const r of robots) { animRobot(r, dt, mul); if (!cutHides(r.x, r.z, r.y)) drawRobot(r, now); } // в окне выше среза — не видно
-  for (const o of world.objects) if (!o.dead && !o.carried && !cutHides(o.x, o.z, world.height(o.x, o.z))) pushItem(o);
+  for (const r of robots) { animRobot(r, dt, mul); if (!cutHides(r.x, r.z)) drawRobot(r, now); } // перед срезом — не видно
+  for (const o of world.objects) if (!o.dead && !o.carried && !cutHides(o.x, o.z)) pushItem(o);
   for (const zb of world.zombies) drawZombie(zb, dt);
-  for (const t of world.trees) for (let n = 0; n < t.apples; n++) { const f = APPLE_SPOTS[n]; if (cutHides(t.x + f[0], t.z + f[2], t.y + f[1])) continue; B[FRUIT_MESH[t.fruit] || 'fruit'].push(M4.rotY(T(t.x + f[0], t.y + f[1], t.z + f[2]), n * 1.7)); }
+  for (const t of world.trees) for (let n = 0; n < t.apples; n++) { const f = APPLE_SPOTS[n]; if (cutHides(t.x + f[0], t.z + f[2])) continue; B[FRUIT_MESH[t.fruit] || 'fruit'].push(M4.rotY(T(t.x + f[0], t.y + f[1], t.z + f[2]), n * 1.7)); }
   for (const k of OPAQUE) R.drawBatch(B[k]);
   R.blend(true);
   R.drawBatch(B.shadow, 0.28);

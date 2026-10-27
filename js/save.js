@@ -48,6 +48,28 @@ function restore(d) {
     robots.push(r);
   }
   nextId = Math.max(nextId, ...robots.map(r => r.id + 1));
+  migrateColonies();
+}
+// ---------- сохранить в файл / загрузить из файла: JSON, массивы — в base64, всё сжато gzip ----------
+const TA_TYPES = { Float32Array, Float64Array, Int8Array, Int16Array, Int32Array, Uint8Array, Uint16Array, Uint32Array };
+function toB64(v) { const u8 = new Uint8Array(v.buffer, v.byteOffset, v.byteLength); let bin = ''; for (let i = 0; i < u8.length; i += 0x8000) bin += String.fromCharCode.apply(null, u8.subarray(i, i + 0x8000)); return btoa(bin); }
+function fromB64(t, b) { const bin = atob(b), u8 = new Uint8Array(bin.length); for (let i = 0; i < bin.length; i++) u8[i] = bin.charCodeAt(i); return new TA_TYPES[t](u8.buffer); }
+async function saveToFile() {
+  const json = JSON.stringify(snapshot(), (k, v) => ArrayBuffer.isView(v) ? { __ta: v.constructor.name, b: toB64(v) } : v instanceof Set ? undefined : v);
+  let blob = new Blob([json], { type: 'application/json' });
+  if (typeof CompressionStream === 'function') blob = await new Response(blob.stream().pipeThrough(new CompressionStream('gzip'))).blob();
+  const a = document.createElement('a'), day = Math.floor(simTime / DAY) + 1;
+  a.href = URL.createObjectURL(blob); a.download = `muraveinik-den-${day}.rwm`;
+  document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(a.href), 5000);
+  return blob.size;
+}
+async function loadFromFile(file) {
+  let buf = new Uint8Array(await file.arrayBuffer());
+  if (buf[0] === 0x1f && buf[1] === 0x8b) buf = new Uint8Array(await new Response(new Blob([buf]).stream().pipeThrough(new DecompressionStream('gzip'))).arrayBuffer());
+  const d = JSON.parse(new TextDecoder().decode(buf), (k, v) => v && typeof v === 'object' && v.__ta ? fromB64(v.__ta, v.b) : v);
+  if (!d || !d.blocks || !d.robots) throw new Error('это не файл мира');
+  restore(d);
+  return d;
 }
 async function autosave(reason = 'auto') {
   if (saveBusy || !world) return;
